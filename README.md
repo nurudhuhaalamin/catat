@@ -29,7 +29,7 @@ wrangler.toml     Konfigurasi Worker (binding D1 + aset)
 
 ## Pengembangan lokal
 
-Prasyarat: **Node 20+** dan **pnpm 9+** (`corepack enable`).
+Prasyarat: **Node 22+** dan **pnpm 9+** (`corepack enable`).
 
 ```bash
 pnpm install
