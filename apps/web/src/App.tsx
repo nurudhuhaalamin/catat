@@ -8,6 +8,7 @@ import AppLayout from "./components/AppLayout";
 import DashboardPage from "./pages/DashboardPage";
 import TransactionsPage from "./pages/TransactionsPage";
 import DebtsPage from "./pages/DebtsPage";
+import ReportsPage from "./pages/ReportsPage";
 import ContactsPage from "./pages/ContactsPage";
 import TeamPage from "./pages/TeamPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -38,6 +39,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/transactions" element={<TransactionsPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/debts" element={<DebtsPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/team" element={<TeamPage />} />

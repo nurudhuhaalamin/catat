@@ -84,9 +84,11 @@ otomatis build, migrasi D1, dan deploy (lihat `.github/workflows/deploy.yml`).
 
 - ✅ **v1 (inti)**: multi-usaha, login tim + peran, uang masuk/keluar, kategori, kontak,
   piutang & hutang + pembayaran, dashboard, offline-first PWA.
-- ⏭️ **Fase 2**: stok produk + HPP.
-- ⏭️ **Fase 3**: laporan laba-rugi, arus kas, aging, export.
-- ⏭️ **Fase 4**: foto struk (R2), multi-currency, notifikasi jatuh tempo, email undangan.
+- ✅ **Laporan**: laba-rugi (berbasis kas), arus kas per bulan, umur (aging) piutang & hutang,
+  export CSV — semua dihitung offline dari data perangkat.
+- ⏭️ **Opsional (dilewati untuk saat ini)**: pengelolaan stok produk + HPP. Bila ditambahkan,
+  laporan laba-rugi bisa diperluas memasukkan HPP.
+- ⏭️ **Lanjutan**: foto struk (R2), multi-currency, notifikasi jatuh tempo, email undangan.
 
 > Catatan: skema tabel better-auth dapat diverifikasi/diperluas dengan
 > `npx @better-auth/cli generate` bila Anda menambah fitur auth (mis. verifikasi email).

@@ -110,7 +110,9 @@ function AddDebt({ businessId, direction, onClose }: { businessId: string; direc
             </option>
           ))}
         </select>
-        {(contacts ?? []).length === 0 && <p className="mt-1 text-xs text-amber-600">Tambah kontak dulu di menu Kontak.</p>}
+        {(contacts ?? []).length === 0 && (
+          <p className="mt-1 text-xs text-amber-600">Tambah kontak dulu di menu Lainnya → Kontak.</p>
+        )}
       </div>
       <div>
         <label className="label">Jumlah (Rp)</label>

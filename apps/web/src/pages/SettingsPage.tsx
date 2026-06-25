@@ -46,8 +46,11 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-2">
+        <button className="btn-ghost w-full justify-start" onClick={() => navigate("/contacts")}>
+          👥 Kontak (pelanggan & pemasok)
+        </button>
         <button className="btn-ghost w-full justify-start" onClick={() => navigate("/team")}>
-          👥 Kelola tim
+          🧑‍🤝‍🧑 Kelola tim
         </button>
         <button className="btn-ghost w-full justify-start" onClick={() => navigate("/onboarding")}>
           ➕ Tambah lini usaha

@@ -6,8 +6,8 @@ import { startAutoSync } from "../lib/sync";
 const nav = [
   { to: "/", label: "Beranda", icon: "🏠", end: true },
   { to: "/transactions", label: "Transaksi", icon: "💵" },
+  { to: "/reports", label: "Laporan", icon: "📊" },
   { to: "/debts", label: "Piutang/Hutang", icon: "📋" },
-  { to: "/contacts", label: "Kontak", icon: "👥" },
   { to: "/settings", label: "Lainnya", icon: "⚙️" },
 ];
 
