@@ -10,8 +10,10 @@ export default function DebtsPage() {
   const { current } = useBusiness();
   const businessId = current?.id ?? "";
   const currency = current?.currency ?? "IDR";
+  const canRecord = current?.role !== "viewer";
   const [tab, setTab] = useState<"receivable" | "payable">("receivable");
   const [addOpen, setAddOpen] = useState(false);
+  const [editFor, setEditFor] = useState<LDebt | null>(null);
   const [payFor, setPayFor] = useState<LDebt | null>(null);
 
   const debts = useLiveQuery(
@@ -26,9 +28,11 @@ export default function DebtsPage() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Piutang & Hutang</h2>
-        <button className="btn-primary py-2" onClick={() => setAddOpen(true)}>
-          + Tambah
-        </button>
+        {canRecord && (
+          <button className="btn-primary py-2" onClick={() => setAddOpen(true)}>
+            + Tambah
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -57,30 +61,48 @@ export default function DebtsPage() {
                 </div>
                 <span className="font-semibold">{formatMoney(d.amountCents, currency)}</span>
               </div>
-              {d.status !== "paid" && (
-                <button className="btn-ghost w-full py-2 text-sm" onClick={() => setPayFor(d)}>
-                  Catat pembayaran
-                </button>
+              {canRecord && (
+                <div className="flex gap-2">
+                  <button className="btn-ghost flex-1 py-2 text-sm" onClick={() => setEditFor(d)}>
+                    Ubah
+                  </button>
+                  {d.status !== "paid" && (
+                    <button className="btn-primary flex-1 py-2 text-sm" onClick={() => setPayFor(d)}>
+                      Catat pembayaran
+                    </button>
+                  )}
+                </div>
               )}
             </li>
           );
         })}
       </ul>
 
-      {addOpen && <AddDebt businessId={businessId} direction={tab} onClose={() => setAddOpen(false)} />}
+      {addOpen && <AddDebt businessId={businessId} direction={tab} debt={null} onClose={() => setAddOpen(false)} />}
+      {editFor && <AddDebt businessId={businessId} direction={editFor.direction} debt={editFor} onClose={() => setEditFor(null)} />}
       {payFor && <PaySheet businessId={businessId} debt={payFor} onClose={() => setPayFor(null)} />}
     </div>
   );
 }
 
-function AddDebt({ businessId, direction, onClose }: { businessId: string; direction: "receivable" | "payable"; onClose: () => void }) {
-  const [contactId, setContactId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [cashNow, setCashNow] = useState(false);
-  const [accountId, setAccountId] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [note, setNote] = useState("");
+function AddDebt({
+  businessId,
+  direction,
+  debt,
+  onClose,
+}: {
+  businessId: string;
+  direction: "receivable" | "payable";
+  debt: LDebt | null;
+  onClose: () => void;
+}) {
+  const [contactId, setContactId] = useState(debt?.contactId ?? "");
+  const [amount, setAmount] = useState(debt ? String(debt.amountCents / 100) : "");
+  const [categoryId, setCategoryId] = useState(debt?.categoryId ?? "");
+  const [cashNow, setCashNow] = useState(!!debt?.accountId);
+  const [accountId, setAccountId] = useState(debt?.accountId ?? "");
+  const [dueDate, setDueDate] = useState(debt?.dueDate ? new Date(debt.dueDate).toISOString().slice(0, 10) : "");
+  const [note, setNote] = useState(debt?.note ?? "");
 
   const contacts = useLiveQuery(
     async () => (await db.contacts.where("businessId").equals(businessId).toArray()).filter((c) => !c.deletedAt),
@@ -100,12 +122,16 @@ function AddDebt({ businessId, direction, onClose }: { businessId: string; direc
     const rupiah = Number(amount);
     if (!contactId || !rupiah || rupiah <= 0) return;
     if (cashNow && !accountId) return;
+    const amountCents = Math.round(rupiah * 100);
+    const paidCents = debt?.paidCents ?? 0;
+    const status = paidCents >= amountCents ? "paid" : paidCents > 0 ? "partial" : "open";
     await saveLocal("debts", businessId, {
+      ...(debt ?? {}),
       contactId,
       direction,
-      amountCents: Math.round(rupiah * 100),
-      paidCents: 0,
-      status: "open",
+      amountCents,
+      paidCents,
+      status,
       categoryId: categoryId || null,
       accountId: cashNow ? accountId : null,
       dueDate: dueDate ? new Date(dueDate).getTime() : null,
@@ -117,7 +143,7 @@ function AddDebt({ businessId, direction, onClose }: { businessId: string; direc
   const cashLabel = direction === "receivable" ? "Uang tunai keluar sekarang (meminjamkan)" : "Uang tunai masuk sekarang (meminjam)";
 
   return (
-    <Sheet title={direction === "receivable" ? "Tambah piutang" : "Tambah hutang"} onClose={onClose}>
+    <Sheet title={`${debt ? "Ubah" : "Tambah"} ${direction === "receivable" ? "piutang" : "hutang"}`} onClose={onClose}>
       <div>
         <label className="label">Kontak</label>
         <select className="input" value={contactId} onChange={(e) => setContactId(e.target.value)} autoFocus>

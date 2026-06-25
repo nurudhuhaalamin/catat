@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { formatMoney } from "@catat/shared";
-import { db } from "../lib/db";
+import { db, type LTransaction } from "../lib/db";
 import { saveLocal, deleteLocal } from "../lib/sync";
 import { useBusiness } from "../lib/businessContext";
 
@@ -12,7 +12,7 @@ export default function TransactionsPage() {
   const businessId = current?.id ?? "";
   const currency = current?.currency ?? "IDR";
   const canRecord = current?.role !== "viewer";
-  const [open, setOpen] = useState(false);
+  const [sheet, setSheet] = useState<LTransaction | "new" | null>(null);
 
   const data = useLiveQuery(async () => {
     if (!businessId) return { txs: [], accountName: new Map<string, string>() };
@@ -34,7 +34,7 @@ export default function TransactionsPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Transaksi</h2>
         {canRecord && (
-          <button className="btn-primary py-2" onClick={() => setOpen(true)}>
+          <button className="btn-primary py-2" onClick={() => setSheet("new")}>
             + Catat
           </button>
         )}
@@ -44,7 +44,11 @@ export default function TransactionsPage() {
 
       <ul className="space-y-2">
         {txs.map((t) => (
-          <li key={t.id} className="card flex items-center justify-between">
+          <li
+            key={t.id}
+            className={`card flex items-center justify-between ${canRecord ? "cursor-pointer active:bg-slate-50" : ""}`}
+            onClick={canRecord ? () => setSheet(t) : undefined}
+          >
             <div className="min-w-0">
               <p className="truncate font-medium">
                 {t.note || (t.type === "income" ? "Pemasukan" : t.type === "expense" ? "Pengeluaran" : "Transfer")}
@@ -68,7 +72,14 @@ export default function TransactionsPage() {
                 {formatMoney(t.amountCents, currency)}
               </span>
               {canRecord && (
-                <button className="text-slate-300 hover:text-red-500" onClick={() => deleteLocal("transactions", businessId, t.id)} title="Hapus">
+                <button
+                  className="text-slate-300 hover:text-red-500"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteLocal("transactions", businessId, t.id);
+                  }}
+                  title="Hapus"
+                >
                   ✕
                 </button>
               )}
@@ -77,20 +88,20 @@ export default function TransactionsPage() {
         ))}
       </ul>
 
-      {open && <AddSheet businessId={businessId} onClose={() => setOpen(false)} />}
+      {sheet && <AddSheet businessId={businessId} tx={sheet === "new" ? null : sheet} onClose={() => setSheet(null)} />}
     </div>
   );
 }
 
-function AddSheet({ businessId, onClose }: { businessId: string; onClose: () => void }) {
-  const [type, setType] = useState<TxType>("income");
-  const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState("");
-  const [toAccountId, setToAccountId] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [contactId, setContactId] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [note, setNote] = useState("");
+function AddSheet({ businessId, tx, onClose }: { businessId: string; tx: LTransaction | null; onClose: () => void }) {
+  const [type, setType] = useState<TxType>(tx?.type ?? "income");
+  const [amount, setAmount] = useState(tx ? String(tx.amountCents / 100) : "");
+  const [accountId, setAccountId] = useState(tx?.accountId ?? "");
+  const [toAccountId, setToAccountId] = useState(tx?.toAccountId ?? "");
+  const [categoryId, setCategoryId] = useState(tx?.categoryId ?? "");
+  const [contactId, setContactId] = useState(tx?.contactId ?? "");
+  const [date, setDate] = useState(() => new Date(tx?.occurredAt ?? Date.now()).toISOString().slice(0, 10));
+  const [note, setNote] = useState(tx?.note ?? "");
 
   const accounts = useLiveQuery(
     async () => (await db.accounts.where("businessId").equals(businessId).toArray()).filter((a) => !a.deletedAt && !a.isArchived),
@@ -113,6 +124,7 @@ function AddSheet({ businessId, onClose }: { businessId: string; onClose: () => 
     if (!rupiah || rupiah <= 0 || !accountId) return;
     if (type === "transfer" && (!toAccountId || toAccountId === accountId)) return;
     await saveLocal("transactions", businessId, {
+      ...(tx ?? {}),
       type,
       amountCents: Math.round(rupiah * 100),
       accountId,
@@ -128,7 +140,7 @@ function AddSheet({ businessId, onClose }: { businessId: string; onClose: () => 
   const noAccounts = (accounts ?? []).length === 0;
 
   return (
-    <Sheet title="Catat transaksi" onClose={onClose}>
+    <Sheet title={tx ? "Ubah transaksi" : "Catat transaksi"} onClose={onClose}>
       <div className="grid grid-cols-3 gap-2">
         <button className={tab(type === "income")} onClick={() => setType("income")}>
           Masuk
