@@ -1,0 +1,31 @@
+name: Deploy ke Cloudflare
+
+# Deploy otomatis saat push ke main, atau jalankan manual dari tab Actions.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build web (PWA)
+        run: pnpm --filter @catat/web build
+
+      - name: Terapkan migrasi D1 (remote)
+        run: pnpm --filter @catat/worker exec wrangler d1 migrations apply catat --remote --config ../wrangler.toml
+
+      - name: Deploy Worker (+ aset statis)
+        run: pnpm --filter @catat/worker exec wrangler deploy --config ../wrangler.toml
