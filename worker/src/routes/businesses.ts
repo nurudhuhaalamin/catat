@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { and, eq, desc } from "drizzle-orm";
-import { businesses, memberships, categories, businessCreateSchema } from "@catat/shared";
+import { businesses, memberships, categories, accounts, businessCreateSchema } from "@catat/shared";
 import type { AppContext } from "../env.js";
 import { requireAuth, requireBusiness } from "../middleware/auth.js";
 
@@ -71,10 +71,24 @@ app.post("/", requireAuth, async (c) => {
       businessId,
       kind: cat.kind,
       name: cat.name,
+      nature: cat.kind === "income" ? ("pendapatan" as const) : ("beban" as const),
       createdAt: ts,
       updatedAt: ts,
     })),
   );
+  // Akun kas bawaan agar bisa langsung mencatat.
+  const kasId = uid();
+  await c.var.db.insert(accounts).values({
+    id: kasId,
+    businessId,
+    name: "Kas",
+    type: "cash",
+    openingBalanceCents: 0,
+    isArchived: false,
+    clientId: kasId,
+    createdAt: ts,
+    updatedAt: ts,
+  });
 
   const created = await c.var.db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
   return c.json({ business: { ...created[0], role: "owner" } }, 201);

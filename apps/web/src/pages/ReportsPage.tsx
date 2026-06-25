@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { formatMoney } from "@catat/shared";
 import { db } from "../lib/db";
+import { balanceSheet, type BalanceSheet } from "../lib/finance";
 import { useBusiness } from "../lib/businessContext";
 import { presetRange, customRange, presetLabel, type RangePreset, type DateRange } from "../lib/dateRange";
 import { downloadCsv } from "../lib/csv";
@@ -53,11 +54,13 @@ export default function ReportsPage() {
 
   const report = useLiveQuery(async () => {
     if (!businessId) return null;
-    const [txAll, cats, debtsAll, contactsAll] = await Promise.all([
+    const [txAll, cats, debtsAll, contactsAll, accountsAll, paymentsAll] = await Promise.all([
       db.transactions.where("businessId").equals(businessId).toArray(),
       db.categories.where("businessId").equals(businessId).toArray(),
       db.debts.where("businessId").equals(businessId).toArray(),
       db.contacts.where("businessId").equals(businessId).toArray(),
+      db.accounts.where("businessId").equals(businessId).toArray(),
+      db.debtPayments.where("businessId").equals(businessId).toArray(),
     ]);
     const catName = new Map(cats.map((c) => [c.id, c.name]));
     const contactName = new Map(contactsAll.map((c) => [c.id, c.name]));
@@ -72,6 +75,7 @@ export default function ReportsPage() {
     let totalExpense = 0;
 
     for (const t of txs) {
+      if (t.type === "transfer") continue; // transfer bukan pemasukan/pengeluaran
       const key = t.categoryId ? (catName.get(t.categoryId) ?? "Tanpa kategori") : "Tanpa kategori";
       const target = t.type === "income" ? incomeMap : expenseMap;
       target.set(key, (target.get(key) ?? 0) + t.amountCents);
@@ -108,6 +112,7 @@ export default function ReportsPage() {
     }
 
     return {
+      bs: balanceSheet(accountsAll, txAll, debtsAll, paymentsAll, cats),
       income: toSorted(incomeMap),
       expense: toSorted(expenseMap),
       totalIncome,
@@ -205,6 +210,9 @@ export default function ReportsPage() {
         <p className="text-xs text-slate-400">Berbasis kas (pemasukan − pengeluaran), tanpa HPP stok.</p>
       </section>
 
+      {/* Posisi Keuangan / Neraca */}
+      <PosisiKeuangan bs={report.bs} fmt={m} />
+
       {/* Arus Kas */}
       <section className="card space-y-2">
         <h3 className="font-bold">Arus Kas per Bulan</h3>
@@ -275,6 +283,57 @@ function CatList({ title, rows, tone, fmt }: { title: string; rows: NamedTotal[]
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function PosisiKeuangan({ bs, fmt }: { bs: BalanceSheet; fmt: (c: number) => string }) {
+  return (
+    <section className="card space-y-3">
+      <h3 className="font-bold">Posisi Keuangan</h3>
+
+      <div>
+        <p className="mb-1 text-sm font-semibold text-slate-500">Saldo Kas & Bank</p>
+        <ul className="space-y-1 text-sm">
+          {bs.cashByAccount.map(({ account, balance }) => (
+            <li key={account.id} className="flex justify-between">
+              <span className="text-slate-600">{account.name}</span>
+              <span>{fmt(balance)}</span>
+            </li>
+          ))}
+          <li className="flex justify-between border-t border-slate-100 pt-1 font-semibold">
+            <span>Total Kas & Bank</span>
+            <span>{fmt(bs.cashTotal)}</span>
+          </li>
+        </ul>
+      </div>
+
+      <div className="space-y-1 border-t border-slate-100 pt-2 text-sm">
+        <p className="text-sm font-semibold text-slate-500">Aset</p>
+        <Line label="Kas & Bank" value={fmt(bs.cashTotal)} />
+        <Line label="Piutang" value={fmt(bs.receivable)} />
+        <Line label="Aset lain" value={fmt(bs.otherAssets)} />
+        <Line label="Total Aset" value={fmt(bs.assets)} bold />
+      </div>
+
+      <div className="space-y-1 border-t border-slate-100 pt-2 text-sm">
+        <p className="text-sm font-semibold text-slate-500">Liabilitas & Ekuitas</p>
+        <Line label="Hutang" value={fmt(bs.liabilities)} />
+        <Line label="Modal" value={fmt(bs.capital)} />
+        <Line label={`Laba (rugi) berjalan`} value={fmt(bs.profit)} />
+        <Line label="Total Liabilitas & Ekuitas" value={fmt(bs.liabilities + bs.equity)} bold />
+      </div>
+
+      <p className="text-xs text-slate-400">Kekayaan bersih (ekuitas): {fmt(bs.equity)}.</p>
+    </section>
+  );
+}
+
+function Line({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div className={`flex justify-between ${bold ? "font-bold" : "text-slate-600"}`}>
+      <span>{label}</span>
+      <span>{value}</span>
     </div>
   );
 }

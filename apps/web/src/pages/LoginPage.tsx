@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import { signIn } from "../lib/auth";
 
 export default function LoginPage() {
@@ -35,11 +34,8 @@ export default function LoginPage() {
           {loading ? "Memproses…" : "Masuk"}
         </button>
       </form>
-      <p className="mt-6 text-center text-sm text-slate-500">
-        Belum punya akun?{" "}
-        <Link to="/register" className="font-semibold text-brand">
-          Daftar
-        </Link>
+      <p className="mt-6 text-center text-xs text-slate-400">
+        Akun hanya dibuat oleh pemilik usaha. Hubungi pemilik bila belum punya akses.
       </p>
     </div>
   );

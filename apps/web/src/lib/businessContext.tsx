@@ -1,11 +1,13 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { apiJson } from "./api";
 
+export type Role = "owner" | "admin" | "pencatat" | "viewer";
+
 export interface BusinessWithRole {
   id: string;
   name: string;
   currency: string;
-  role: "owner" | "admin" | "staff";
+  role: Role;
 }
 
 interface BusinessCtx {

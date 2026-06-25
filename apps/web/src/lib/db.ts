@@ -10,6 +10,16 @@ interface LocalBase {
   deletedAt?: number | null;
 }
 
+export interface LAccount extends LocalBase {
+  name: string;
+  type: "cash" | "bank" | "other";
+  openingBalanceCents: number;
+  openingDate?: number | null;
+  isArchived: boolean;
+  note?: string | null;
+  clientId: string;
+}
+
 export interface LContact extends LocalBase {
   name: string;
   type: "customer" | "supplier" | "both";
@@ -17,14 +27,19 @@ export interface LContact extends LocalBase {
   note?: string | null;
 }
 
+export type CategoryNature = "pendapatan" | "modal" | "lainnya" | "beban" | "aset" | "prive";
+
 export interface LCategory extends LocalBase {
   kind: "income" | "expense";
   name: string;
+  nature: CategoryNature;
 }
 
 export interface LTransaction extends LocalBase {
-  type: "income" | "expense";
+  type: "income" | "expense" | "transfer";
   amountCents: number;
+  accountId?: string | null;
+  toAccountId?: string | null;
   categoryId?: string | null;
   contactId?: string | null;
   occurredAt: number;
@@ -37,6 +52,8 @@ export interface LDebt extends LocalBase {
   direction: "receivable" | "payable";
   amountCents: number;
   paidCents: number;
+  categoryId?: string | null;
+  accountId?: string | null;
   dueDate?: number | null;
   status: "open" | "partial" | "paid";
   note?: string | null;
@@ -47,11 +64,12 @@ export interface LDebtPayment extends LocalBase {
   debtId: string;
   amountCents: number;
   paidAt: number;
+  accountId?: string | null;
   note?: string | null;
   clientId: string;
 }
 
-export type SyncEntity = "contacts" | "categories" | "transactions" | "debts" | "debtPayments";
+export type SyncEntity = "accounts" | "contacts" | "categories" | "transactions" | "debts" | "debtPayments";
 
 export interface OutboxItem {
   localId?: number;
@@ -68,6 +86,7 @@ export interface MetaItem {
 }
 
 class CatatDB extends Dexie {
+  accounts!: Table<LAccount, string>;
   contacts!: Table<LContact, string>;
   categories!: Table<LCategory, string>;
   transactions!: Table<LTransaction, string>;
@@ -86,6 +105,10 @@ class CatatDB extends Dexie {
       debtPayments: "id, businessId, debtId, updatedAt",
       outbox: "++localId, businessId, createdAt",
       meta: "key",
+    });
+    // v2: tambah store akun kas/bank.
+    this.version(2).stores({
+      accounts: "id, businessId, updatedAt",
     });
   }
 }

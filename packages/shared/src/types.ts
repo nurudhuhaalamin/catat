@@ -1,6 +1,7 @@
 import type {
   businesses,
   memberships,
+  accounts,
   contacts,
   categories,
   transactions,
@@ -12,6 +13,7 @@ import type {
 export type Business = typeof businesses.$inferSelect;
 export type Membership = typeof memberships.$inferSelect;
 export type Invitation = typeof invitations.$inferSelect;
+export type Account = typeof accounts.$inferSelect;
 export type Contact = typeof contacts.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
@@ -26,6 +28,7 @@ export interface BusinessWithRole extends Business {
 export interface SyncPullResult {
   cursor: number;
   changes: {
+    accounts: Account[];
     contacts: Contact[];
     categories: Category[];
     transactions: Transaction[];

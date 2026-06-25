@@ -18,7 +18,10 @@ export async function saveLocal(
   const now = Date.now();
   const data: Record<string, unknown> = { ...record, businessId, updatedAt: now };
   if (!data.id) data.id = newId();
-  if ((entity === "transactions" || entity === "debts" || entity === "debtPayments") && !data.clientId) {
+  if (
+    (entity === "accounts" || entity === "transactions" || entity === "debts" || entity === "debtPayments") &&
+    !data.clientId
+  ) {
     data.clientId = data.id;
   }
   if (!data.createdAt) data.createdAt = now;
@@ -50,7 +53,7 @@ export async function pull(businessId: string): Promise<void> {
   const since = (cursorRow?.value as number) ?? 0;
   const json = await apiJson<PullResponse>(`/api/sync/pull?since=${since}`, { businessId });
 
-  await db.transaction("rw", [db.contacts, db.categories, db.transactions, db.debts, db.debtPayments], async () => {
+  await db.transaction("rw", [db.accounts, db.contacts, db.categories, db.transactions, db.debts, db.debtPayments], async () => {
     for (const entity of Object.keys(json.changes) as SyncEntity[]) {
       const rows = json.changes[entity];
       if (rows?.length) await tableFor(entity).bulkPut(rows as never[]);

@@ -76,27 +76,45 @@ export default function DebtsPage() {
 function AddDebt({ businessId, direction, onClose }: { businessId: string; direction: "receivable" | "payable"; onClose: () => void }) {
   const [contactId, setContactId] = useState("");
   const [amount, setAmount] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [cashNow, setCashNow] = useState(false);
+  const [accountId, setAccountId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [note, setNote] = useState("");
+
   const contacts = useLiveQuery(
     async () => (await db.contacts.where("businessId").equals(businessId).toArray()).filter((c) => !c.deletedAt),
+    [businessId],
+  );
+  const catKind = direction === "receivable" ? "income" : "expense";
+  const categories = useLiveQuery(
+    async () => (await db.categories.where("businessId").equals(businessId).toArray()).filter((c) => !c.deletedAt && c.kind === catKind),
+    [businessId, catKind],
+  );
+  const accounts = useLiveQuery(
+    async () => (await db.accounts.where("businessId").equals(businessId).toArray()).filter((a) => !a.deletedAt && !a.isArchived),
     [businessId],
   );
 
   async function submit() {
     const rupiah = Number(amount);
     if (!contactId || !rupiah || rupiah <= 0) return;
+    if (cashNow && !accountId) return;
     await saveLocal("debts", businessId, {
       contactId,
       direction,
       amountCents: Math.round(rupiah * 100),
       paidCents: 0,
       status: "open",
+      categoryId: categoryId || null,
+      accountId: cashNow ? accountId : null,
       dueDate: dueDate ? new Date(dueDate).getTime() : null,
       note: note || null,
     });
     onClose();
   }
+
+  const cashLabel = direction === "receivable" ? "Uang tunai keluar sekarang (meminjamkan)" : "Uang tunai masuk sekarang (meminjam)";
 
   return (
     <Sheet title={direction === "receivable" ? "Tambah piutang" : "Tambah hutang"} onClose={onClose}>
@@ -119,6 +137,36 @@ function AddDebt({ businessId, direction, onClose }: { businessId: string; direc
         <input className="input" type="number" inputMode="numeric" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
       </div>
       <div>
+        <label className="label">Kategori (opsional)</label>
+        <select className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+          <option value="">— {direction === "receivable" ? "mis. Penjualan" : "mis. Pembelian"} —</option>
+          {(categories ?? []).map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <label className="flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" checked={cashNow} onChange={(e) => setCashNow(e.target.checked)} />
+        {cashLabel}
+      </label>
+      {cashNow && (
+        <div>
+          <label className="label">Akun kas/bank</label>
+          <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <option value="">— Pilih akun —</option>
+            {(accounts ?? []).map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div>
         <label className="label">Jatuh tempo (opsional)</label>
         <input className="input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
@@ -136,16 +184,22 @@ function AddDebt({ businessId, direction, onClose }: { businessId: string; direc
 function PaySheet({ businessId, debt, onClose }: { businessId: string; debt: LDebt; onClose: () => void }) {
   const remain = debt.amountCents - debt.paidCents;
   const [amount, setAmount] = useState(String(remain / 100));
+  const [accountId, setAccountId] = useState("");
+
+  const accounts = useLiveQuery(
+    async () => (await db.accounts.where("businessId").equals(businessId).toArray()).filter((a) => !a.deletedAt && !a.isArchived),
+    [businessId],
+  );
 
   async function submit() {
     const rupiah = Number(amount);
-    if (!rupiah || rupiah <= 0) return;
+    if (!rupiah || rupiah <= 0 || !accountId) return;
     const cents = Math.min(Math.round(rupiah * 100), remain);
     const newPaid = debt.paidCents + cents;
     const status = newPaid >= debt.amountCents ? "paid" : "partial";
 
-    // Catat pembayaran + perbarui sisa hutang/piutang.
-    await saveLocal("debtPayments", businessId, { debtId: debt.id, amountCents: cents, paidAt: Date.now(), note: null });
+    // Catat pembayaran (menggerakkan kas/bank) + perbarui sisa hutang/piutang.
+    await saveLocal("debtPayments", businessId, { debtId: debt.id, amountCents: cents, paidAt: Date.now(), accountId, note: null });
     await saveLocal("debts", businessId, { ...debt, paidCents: newPaid, status });
     onClose();
   }
@@ -156,6 +210,17 @@ function PaySheet({ businessId, debt, onClose }: { businessId: string; debt: LDe
       <div>
         <label className="label">Jumlah bayar (Rp)</label>
         <input className="input" type="number" inputMode="numeric" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+      </div>
+      <div>
+        <label className="label">{debt.direction === "receivable" ? "Uang masuk ke akun" : "Uang keluar dari akun"}</label>
+        <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          <option value="">— Pilih akun —</option>
+          {(accounts ?? []).map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
       </div>
       <button className="btn-primary w-full" onClick={submit}>
         Simpan pembayaran
