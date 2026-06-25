@@ -13,7 +13,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "catat"
-database_id = "PLACEHOLDER_REPLACE_AFTER_d1_create"
+database_id = "f8295006-c539-4ab2-ab6c-f4e312bd52b2"
 migrations_dir = "migrations"
 
 [vars]
