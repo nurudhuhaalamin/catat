@@ -1,0 +1,25 @@
+name = "catat"
+main = "worker/src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# SPA + API dilayani satu Worker. Aset di-build dari apps/web.
+[assets]
+directory = "apps/web/dist"
+binding = "ASSETS"
+
+# Database D1. Ganti database_id setelah membuat DB:
+#   wrangler d1 create catat
+[[d1_databases]]
+binding = "DB"
+database_name = "catat"
+database_id = "PLACEHOLDER_REPLACE_AFTER_d1_create"
+migrations_dir = "migrations"
+
+[vars]
+ENVIRONMENT = "production"
+# BETTER_AUTH_URL di-set sesuai domain produksi (mis. https://catat.<akun>.workers.dev)
+BETTER_AUTH_URL = "http://localhost:8787"
+
+# Secrets (JANGAN ditaruh di sini): set via `wrangler secret put`
+#   wrangler secret put BETTER_AUTH_SECRET
