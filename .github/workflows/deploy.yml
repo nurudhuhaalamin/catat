@@ -1,9 +1,9 @@
 name: Deploy ke Cloudflare
 
-# Deploy otomatis saat push ke main, atau jalankan manual dari tab Actions.
+# Deploy produksi ditangani oleh Cloudflare Workers Builds (integrasi GitHub→Cloudflare).
+# Workflow ini OPSIONAL dan hanya jalan manual (tab Actions → Run workflow), berguna jika
+# ingin deploy lewat GitHub Actions. Perlu secret CLOUDFLARE_API_TOKEN & CLOUDFLARE_ACCOUNT_ID.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
