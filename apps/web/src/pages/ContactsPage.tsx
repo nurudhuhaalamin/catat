@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "../lib/db";
+import { db, type LContact } from "../lib/db";
 import { saveLocal, deleteLocal } from "../lib/sync";
 import { useBusiness } from "../lib/businessContext";
 import { Sheet } from "./TransactionsPage";
@@ -8,7 +8,8 @@ import { Sheet } from "./TransactionsPage";
 export default function ContactsPage() {
   const { current } = useBusiness();
   const businessId = current?.id ?? "";
-  const [open, setOpen] = useState(false);
+  const canRecord = current?.role !== "viewer";
+  const [sheet, setSheet] = useState<LContact | "new" | null>(null);
 
   const contacts = useLiveQuery(
     async () => (businessId ? (await db.contacts.where("businessId").equals(businessId).toArray()).filter((c) => !c.deletedAt) : []),
@@ -19,16 +20,22 @@ export default function ContactsPage() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Kontak</h2>
-        <button className="btn-primary py-2" onClick={() => setOpen(true)}>
-          + Tambah
-        </button>
+        {canRecord && (
+          <button className="btn-primary py-2" onClick={() => setSheet("new")}>
+            + Tambah
+          </button>
+        )}
       </div>
 
       {(contacts ?? []).length === 0 && <p className="py-10 text-center text-slate-400">Belum ada kontak.</p>}
 
       <ul className="space-y-2">
         {(contacts ?? []).map((c) => (
-          <li key={c.id} className="card flex items-center justify-between">
+          <li
+            key={c.id}
+            className={`card flex items-center justify-between ${canRecord ? "cursor-pointer active:bg-slate-50" : ""}`}
+            onClick={canRecord ? () => setSheet(c) : undefined}
+          >
             <div>
               <p className="font-medium">{c.name}</p>
               <p className="text-xs text-slate-400">
@@ -36,31 +43,39 @@ export default function ContactsPage() {
                 {c.phone ? ` · ${c.phone}` : ""}
               </p>
             </div>
-            <button className="text-slate-300 hover:text-red-500" onClick={() => deleteLocal("contacts", businessId, c.id)}>
-              ✕
-            </button>
+            {canRecord && (
+              <button
+                className="text-slate-300 hover:text-red-500"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteLocal("contacts", businessId, c.id);
+                }}
+              >
+                ✕
+              </button>
+            )}
           </li>
         ))}
       </ul>
 
-      {open && <AddContact businessId={businessId} onClose={() => setOpen(false)} />}
+      {sheet && <AddContact businessId={businessId} contact={sheet === "new" ? null : sheet} onClose={() => setSheet(null)} />}
     </div>
   );
 }
 
-function AddContact({ businessId, onClose }: { businessId: string; onClose: () => void }) {
-  const [name, setName] = useState("");
-  const [type, setType] = useState<"customer" | "supplier" | "both">("both");
-  const [phone, setPhone] = useState("");
+function AddContact({ businessId, contact, onClose }: { businessId: string; contact: LContact | null; onClose: () => void }) {
+  const [name, setName] = useState(contact?.name ?? "");
+  const [type, setType] = useState<"customer" | "supplier" | "both">(contact?.type ?? "both");
+  const [phone, setPhone] = useState(contact?.phone ?? "");
 
   async function submit() {
     if (!name.trim()) return;
-    await saveLocal("contacts", businessId, { name: name.trim(), type, phone: phone || null, note: null });
+    await saveLocal("contacts", businessId, { ...(contact ?? {}), name: name.trim(), type, phone: phone || null });
     onClose();
   }
 
   return (
-    <Sheet title="Tambah kontak" onClose={onClose}>
+    <Sheet title={contact ? "Ubah kontak" : "Tambah kontak"} onClose={onClose}>
       <div>
         <label className="label">Nama</label>
         <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
