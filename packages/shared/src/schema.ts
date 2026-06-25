@@ -104,13 +104,41 @@ export const memberships = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    role: text("role", { enum: ["owner", "admin", "staff"] }).notNull().default("staff"),
+    // Peran (level akses): owner > admin > pencatat > viewer.
+    role: text("role", { enum: ["owner", "admin", "pencatat", "viewer"] }).notNull().default("pencatat"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => ({
     uniqMember: uniqueIndex("memberships_business_user_uniq").on(t.businessId, t.userId),
     userIdx: index("memberships_user_idx").on(t.userId),
+  }),
+);
+
+// Akun kas/bank: tempat uang nyata berada. Punya saldo awal; saldo berjalan dihitung
+// dari opening + transaksi (masuk/keluar/transfer) + efek piutang/hutang.
+export const accounts = sqliteTable(
+  "accounts",
+  {
+    id: text("id").primaryKey(),
+    businessId: text("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type", { enum: ["cash", "bank", "other"] }).notNull().default("cash"),
+    openingBalanceCents: integer("opening_balance_cents").notNull().default(0),
+    openingDate: integer("opening_date", { mode: "timestamp_ms" }),
+    isArchived: integer("is_archived", { mode: "boolean" }).notNull().default(false),
+    note: text("note"),
+    clientId: text("client_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+  },
+  (t) => ({
+    businessIdx: index("accounts_business_idx").on(t.businessId),
+    clientUniq: uniqueIndex("accounts_client_uniq").on(t.businessId, t.clientId),
+    syncIdx: index("accounts_sync_idx").on(t.businessId, t.updatedAt),
   }),
 );
 
@@ -166,6 +194,14 @@ export const categories = sqliteTable(
       .references(() => businesses.id, { onDelete: "cascade" }),
     kind: text("kind", { enum: ["income", "expense"] }).notNull(),
     name: text("name").notNull(),
+    // Sifat akuntansi untuk klasifikasi laba-rugi vs neraca.
+    // income: pendapatan (default) | modal | lainnya
+    // expense: beban (default) | aset | prive
+    nature: text("nature", {
+      enum: ["pendapatan", "modal", "lainnya", "beban", "aset", "prive"],
+    })
+      .notNull()
+      .default("pendapatan"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
     deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
@@ -182,8 +218,11 @@ export const transactions = sqliteTable(
     businessId: text("business_id")
       .notNull()
       .references(() => businesses.id, { onDelete: "cascade" }),
-    type: text("type", { enum: ["income", "expense"] }).notNull(),
+    // transfer = pindah antar akun kas/bank (account_id -> to_account_id), bukan laba-rugi.
+    type: text("type", { enum: ["income", "expense", "transfer"] }).notNull(),
     amountCents: integer("amount_cents").notNull(),
+    accountId: text("account_id").references(() => accounts.id),
+    toAccountId: text("to_account_id").references(() => accounts.id),
     categoryId: text("category_id").references(() => categories.id),
     contactId: text("contact_id").references(() => contacts.id),
     occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
@@ -217,6 +256,9 @@ export const debts = sqliteTable(
     direction: text("direction", { enum: ["receivable", "payable"] }).notNull(),
     amountCents: integer("amount_cents").notNull(),
     paidCents: integer("paid_cents").notNull().default(0),
+    // Opsional: kategori (penjualan/pembelian kredit) & akun kas/bank bila tunai bergerak saat dicatat.
+    categoryId: text("category_id").references(() => categories.id),
+    accountId: text("account_id").references(() => accounts.id),
     dueDate: integer("due_date", { mode: "timestamp_ms" }),
     status: text("status", { enum: ["open", "partial", "paid"] }).notNull().default("open"),
     note: text("note"),
@@ -248,6 +290,8 @@ export const debtPayments = sqliteTable(
       .references(() => debts.id, { onDelete: "cascade" }),
     amountCents: integer("amount_cents").notNull(),
     paidAt: integer("paid_at", { mode: "timestamp_ms" }).notNull(),
+    // Akun kas/bank yang dilewati pembayaran (masuk utk piutang, keluar utk hutang).
+    accountId: text("account_id").references(() => accounts.id),
     transactionId: text("transaction_id").references(() => transactions.id),
     note: text("note"),
     clientId: text("client_id").notNull(),
@@ -270,6 +314,7 @@ export const schema = {
   businesses,
   memberships,
   invitations,
+  accounts,
   contacts,
   categories,
   transactions,

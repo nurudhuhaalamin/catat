@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import { and, eq, gt } from "drizzle-orm";
 import {
+  accounts,
   contacts,
   categories,
   transactions,
   debts,
   debtPayments,
+  accountSchema,
   contactSchema,
   categorySchema,
   transactionSchema,
@@ -20,13 +22,14 @@ const app = new Hono<AppContext>();
 
 const ms = (v: unknown): Date | null => (typeof v === "number" ? new Date(v) : null);
 
+// Entitas konfigurasi (akun & kategori) hanya boleh diubah admin/owner.
+const CONFIG_ENTITIES = new Set(["accounts", "categories"]);
+
 /**
- * PUSH: terapkan batch mutasi dari outbox perangkat secara idempoten.
- * Idempotensi: conflict target = primary key `id` (UUID dibuat di perangkat).
- * Server adalah pemilik `updated_at` (selalu di-set waktu server) → cursor pull monoton.
- * Edit memakai last-write-wins; hapus = soft-delete (set deleted_at).
+ * PUSH: terapkan batch mutasi dari outbox perangkat secara idempoten (conflict = id).
+ * viewer ditolak (butuh minimal pencatat). accounts/categories butuh admin/owner.
  */
-app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
+app.post("/push", requireAuth, requireBusiness("pencatat"), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = syncPushSchema.safeParse(body);
   if (!parsed.success) {
@@ -39,19 +42,59 @@ app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
 
   const db = c.var.db;
   const userId = c.var.user.id;
+  const canConfig = c.var.membership.role === "admin" || c.var.membership.role === "owner";
   const applied: string[] = [];
   const rejected: { id?: string; entity: string; reason: string }[] = [];
 
   for (const m of parsed.data.mutations) {
     const serverNow = new Date();
+    const dataId = (m.data as { id?: string }).id;
+    if (CONFIG_ENTITIES.has(m.entity) && !canConfig) {
+      rejected.push({ id: dataId, entity: m.entity, reason: "Butuh peran admin/owner" });
+      continue;
+    }
     try {
       if (m.op === "delete") {
-        await softDelete(db, businessId, m.entity, String((m.data as { id?: string }).id ?? ""), serverNow);
-        applied.push(String((m.data as { id?: string }).id ?? ""));
+        await softDelete(db, businessId, m.entity, String(dataId ?? ""), serverNow);
+        applied.push(String(dataId ?? ""));
         continue;
       }
 
       switch (m.entity) {
+        case "accounts": {
+          const d = accountSchema.parse(m.data);
+          await db
+            .insert(accounts)
+            .values({
+              id: d.id,
+              businessId,
+              name: d.name,
+              type: d.type,
+              openingBalanceCents: d.openingBalanceCents,
+              openingDate: ms(d.openingDate),
+              isArchived: d.isArchived,
+              note: d.note ?? null,
+              clientId: d.clientId,
+              createdAt: serverNow,
+              updatedAt: serverNow,
+              deletedAt: ms(d.deletedAt),
+            })
+            .onConflictDoUpdate({
+              target: accounts.id,
+              set: {
+                name: d.name,
+                type: d.type,
+                openingBalanceCents: d.openingBalanceCents,
+                openingDate: ms(d.openingDate),
+                isArchived: d.isArchived,
+                note: d.note ?? null,
+                updatedAt: serverNow,
+                deletedAt: ms(d.deletedAt),
+              },
+            });
+          applied.push(d.id);
+          break;
+        }
         case "contacts": {
           const d = contactSchema.parse(m.data);
           await db
@@ -78,8 +121,8 @@ app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
           const d = categorySchema.parse(m.data);
           await db
             .insert(categories)
-            .values({ id: d.id, businessId, kind: d.kind, name: d.name, createdAt: serverNow, updatedAt: serverNow, deletedAt: ms(d.deletedAt) })
-            .onConflictDoUpdate({ target: categories.id, set: { name: d.name, kind: d.kind, updatedAt: serverNow, deletedAt: ms(d.deletedAt) } });
+            .values({ id: d.id, businessId, kind: d.kind, name: d.name, nature: d.nature, createdAt: serverNow, updatedAt: serverNow, deletedAt: ms(d.deletedAt) })
+            .onConflictDoUpdate({ target: categories.id, set: { name: d.name, kind: d.kind, nature: d.nature, updatedAt: serverNow, deletedAt: ms(d.deletedAt) } });
           applied.push(d.id);
           break;
         }
@@ -92,6 +135,8 @@ app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
               businessId,
               type: d.type,
               amountCents: d.amountCents,
+              accountId: d.accountId ?? null,
+              toAccountId: d.toAccountId ?? null,
               categoryId: d.categoryId ?? null,
               contactId: d.contactId ?? null,
               occurredAt: new Date(d.occurredAt),
@@ -107,6 +152,8 @@ app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
               set: {
                 type: d.type,
                 amountCents: d.amountCents,
+                accountId: d.accountId ?? null,
+                toAccountId: d.toAccountId ?? null,
                 categoryId: d.categoryId ?? null,
                 contactId: d.contactId ?? null,
                 occurredAt: new Date(d.occurredAt),
@@ -129,6 +176,8 @@ app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
               direction: d.direction,
               amountCents: d.amountCents,
               paidCents: d.paidCents,
+              categoryId: d.categoryId ?? null,
+              accountId: d.accountId ?? null,
               dueDate: ms(d.dueDate),
               status: d.status,
               note: d.note ?? null,
@@ -145,6 +194,8 @@ app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
                 direction: d.direction,
                 amountCents: d.amountCents,
                 paidCents: d.paidCents,
+                categoryId: d.categoryId ?? null,
+                accountId: d.accountId ?? null,
                 dueDate: ms(d.dueDate),
                 status: d.status,
                 note: d.note ?? null,
@@ -165,6 +216,7 @@ app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
               debtId: d.debtId,
               amountCents: d.amountCents,
               paidAt: new Date(d.paidAt),
+              accountId: d.accountId ?? null,
               note: d.note ?? null,
               clientId: d.clientId,
               createdAt: serverNow,
@@ -173,31 +225,29 @@ app.post("/push", requireAuth, requireBusiness("staff"), async (c) => {
             })
             .onConflictDoUpdate({
               target: debtPayments.id,
-              set: { amountCents: d.amountCents, paidAt: new Date(d.paidAt), note: d.note ?? null, updatedAt: serverNow, deletedAt: ms(d.deletedAt) },
+              set: { amountCents: d.amountCents, paidAt: new Date(d.paidAt), accountId: d.accountId ?? null, note: d.note ?? null, updatedAt: serverNow, deletedAt: ms(d.deletedAt) },
             });
           applied.push(d.id);
           break;
         }
       }
     } catch (err) {
-      rejected.push({ id: (m.data as { id?: string }).id, entity: m.entity, reason: (err as Error).message });
+      rejected.push({ id: dataId, entity: m.entity, reason: (err as Error).message });
     }
   }
 
   return c.json({ applied: applied.length, rejected, cursor: Date.now() });
 });
 
-/**
- * PULL: kembalikan semua baris yang berubah sejak `since` (ms) per entitas.
- * Client menyimpan `cursor` dan mengirimnya pada pull berikutnya.
- */
-app.get("/pull", requireAuth, requireBusiness("staff"), async (c) => {
+/** PULL: kembalikan baris berubah sejak `since` (ms) per entitas. */
+app.get("/pull", requireAuth, requireBusiness("viewer"), async (c) => {
   const businessId = c.req.param("businessId") ?? c.req.header("x-business-id")!;
   const since = Number(c.req.query("since") ?? "0") || 0;
   const sinceDate = new Date(since);
   const db = c.var.db;
 
-  const [contactRows, categoryRows, txRows, debtRows, paymentRows] = await Promise.all([
+  const [accountRows, contactRows, categoryRows, txRows, debtRows, paymentRows] = await Promise.all([
+    db.select().from(accounts).where(and(eq(accounts.businessId, businessId), gt(accounts.updatedAt, sinceDate))),
     db.select().from(contacts).where(and(eq(contacts.businessId, businessId), gt(contacts.updatedAt, sinceDate))),
     db.select().from(categories).where(and(eq(categories.businessId, businessId), gt(categories.updatedAt, sinceDate))),
     db.select().from(transactions).where(and(eq(transactions.businessId, businessId), gt(transactions.updatedAt, sinceDate))),
@@ -208,6 +258,7 @@ app.get("/pull", requireAuth, requireBusiness("staff"), async (c) => {
   return c.json({
     cursor: Date.now(),
     changes: {
+      accounts: accountRows.map(toEpoch),
       contacts: contactRows.map(toEpoch),
       categories: categoryRows.map(toEpoch),
       transactions: txRows.map(toEpoch),
@@ -217,7 +268,7 @@ app.get("/pull", requireAuth, requireBusiness("staff"), async (c) => {
   });
 });
 
-// Konversi semua kolom Date -> epoch ms (number) agar konsisten dengan store lokal (Dexie).
+// Konversi kolom Date -> epoch ms (number) agar konsisten dengan store lokal (Dexie).
 function toEpoch<T extends Record<string, unknown>>(row: T): T {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
@@ -236,6 +287,8 @@ async function softDelete(
   if (!id) return;
   const set = { deletedAt: serverNow, updatedAt: serverNow };
   switch (entity) {
+    case "accounts":
+      return db.update(accounts).set(set).where(and(eq(accounts.businessId, businessId), eq(accounts.id, id)));
     case "contacts":
       return db.update(contacts).set(set).where(and(eq(contacts.businessId, businessId), eq(contacts.id, id)));
     case "categories":

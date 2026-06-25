@@ -1,6 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { formatMoney } from "@catat/shared";
 import { db } from "../lib/db";
+import { accountBalances } from "../lib/finance";
 import { useBusiness } from "../lib/businessContext";
 
 function startOfMonth(): number {
@@ -15,32 +16,42 @@ export default function DashboardPage() {
 
   const stats = useLiveQuery(async () => {
     if (!businessId) return null;
-    const txs = (await db.transactions.where("businessId").equals(businessId).toArray()).filter((t) => !t.deletedAt);
-    const debts = (await db.debts.where("businessId").equals(businessId).toArray()).filter((d) => !d.deletedAt);
+    const [accounts, txs, debts, payments] = await Promise.all([
+      db.accounts.where("businessId").equals(businessId).toArray(),
+      db.transactions.where("businessId").equals(businessId).toArray(),
+      db.debts.where("businessId").equals(businessId).toArray(),
+      db.debtPayments.where("businessId").equals(businessId).toArray(),
+    ]);
+    const liveTx = txs.filter((t) => !t.deletedAt);
     const monthStart = startOfMonth();
-
-    let income = 0,
-      expense = 0,
-      monthIncome = 0,
+    let monthIncome = 0,
       monthExpense = 0;
-    for (const t of txs) {
-      if (t.type === "income") {
-        income += t.amountCents;
-        if (t.occurredAt >= monthStart) monthIncome += t.amountCents;
-      } else {
-        expense += t.amountCents;
-        if (t.occurredAt >= monthStart) monthExpense += t.amountCents;
-      }
+    for (const t of liveTx) {
+      if (t.occurredAt < monthStart) continue;
+      if (t.type === "income") monthIncome += t.amountCents;
+      else if (t.type === "expense") monthExpense += t.amountCents;
     }
+
+    const bal = accountBalances(accounts, txs, debts, payments);
+    const liveAccounts = accounts.filter((a) => !a.deletedAt && !a.isArchived);
+    const cashTotal = liveAccounts.reduce((s, a) => s + (bal.get(a.id) ?? 0), 0);
+
     let receivable = 0,
       payable = 0;
     for (const d of debts) {
-      if (d.status === "paid") continue;
+      if (d.deletedAt || d.status === "paid") continue;
       const remain = d.amountCents - d.paidCents;
       if (d.direction === "receivable") receivable += remain;
       else payable += remain;
     }
-    return { balance: income - expense, monthIncome, monthExpense, receivable, payable };
+    return {
+      cashTotal,
+      accounts: liveAccounts.map((a) => ({ name: a.name, balance: bal.get(a.id) ?? 0 })),
+      monthIncome,
+      monthExpense,
+      receivable,
+      payable,
+    };
   }, [businessId]);
 
   if (!stats) return <p className="text-slate-400">Memuat…</p>;
@@ -48,8 +59,18 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <div className="card bg-brand text-white">
-        <p className="text-sm text-white/80">Saldo kas (akumulasi)</p>
-        <p className="mt-1 text-3xl font-bold">{formatMoney(stats.balance, currency)}</p>
+        <p className="text-sm text-white/80">Total saldo Kas & Bank</p>
+        <p className="mt-1 text-3xl font-bold">{formatMoney(stats.cashTotal, currency)}</p>
+        {stats.accounts.length > 0 && (
+          <div className="mt-3 space-y-1 border-t border-white/20 pt-2 text-sm">
+            {stats.accounts.map((a) => (
+              <div key={a.name} className="flex justify-between text-white/90">
+                <span>{a.name}</span>
+                <span>{formatMoney(a.balance, currency)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -59,9 +80,7 @@ export default function DashboardPage() {
         <Stat label="Hutang" value={formatMoney(stats.payable, currency)} tone="text-purple-600" />
       </div>
 
-      <p className="pt-2 text-center text-xs text-slate-400">
-        Data tersimpan di perangkat & tersinkron otomatis saat online.
-      </p>
+      <p className="pt-2 text-center text-xs text-slate-400">Data tersimpan di perangkat & tersinkron otomatis saat online.</p>
     </div>
   );
 }

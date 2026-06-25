@@ -22,6 +22,8 @@ export function createAuth(env: Env, db: DB) {
       enabled: true,
       autoSignIn: true,
       minPasswordLength: 8,
+      // Registrasi publik ditutup: akun anggota dibuat oleh owner/admin (lihat routes/members.ts).
+      disableSignUp: true,
     },
     session: {
       expiresIn: 60 * 60 * 24 * 30, // 30 hari

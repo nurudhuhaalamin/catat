@@ -8,7 +8,7 @@ const app = new Hono<AppContext>();
 
 // Ringkasan dashboard (otoritatif dari D1): pemasukan, pengeluaran, saldo,
 // total piutang & hutang yang masih berjalan, untuk rentang waktu tertentu.
-app.get("/:businessId/summary", requireAuth, requireBusiness("staff"), async (c) => {
+app.get("/:businessId/summary", requireAuth, requireBusiness("viewer"), async (c) => {
   const businessId = c.req.param("businessId");
   const from = Number(c.req.query("from") ?? "0") || 0;
   const to = Number(c.req.query("to") ?? String(Date.now()));

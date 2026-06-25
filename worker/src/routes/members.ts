@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { and, eq } from "drizzle-orm";
-import { memberships, invitations, user as userTable, inviteSchema, roleSchema } from "@catat/shared";
+import { hashPassword } from "better-auth/crypto";
+import { memberships, account as accountTable, user as userTable, memberCreateSchema, passwordResetSchema, roleSchema } from "@catat/shared";
 import type { AppContext } from "../env.js";
 import { requireAuth, requireBusiness } from "../middleware/auth.js";
 
@@ -10,7 +11,7 @@ const now = () => new Date();
 const uid = () => crypto.randomUUID();
 
 // Daftar anggota tim sebuah usaha.
-app.get("/:businessId/members", requireAuth, requireBusiness("staff"), async (c) => {
+app.get("/:businessId/members", requireAuth, requireBusiness("viewer"), async (c) => {
   const rows = await c.var.db
     .select({
       membershipId: memberships.id,
@@ -26,122 +27,153 @@ app.get("/:businessId/members", requireAuth, requireBusiness("staff"), async (c)
   return c.json({ members: rows });
 });
 
-// Undang anggota lewat email (admin/owner). Jika user sudah punya akun,
-// langsung dibuatkan membership; jika belum, dibuat undangan pending.
-app.post("/:businessId/invitations", requireAuth, requireBusiness("admin"), async (c) => {
+// Buat akun anggota (email+password+peran). Hanya admin/owner. Registrasi publik ditutup,
+// jadi inilah satu-satunya cara anggota mendapat akun.
+app.post("/:businessId/members", requireAuth, requireBusiness("admin"), async (c) => {
   const businessId = c.req.param("businessId");
   const body = await c.req.json().catch(() => ({}));
-  const parsed = inviteSchema.safeParse(body);
+  const parsed = memberCreateSchema.safeParse(body);
   if (!parsed.success) {
     return c.json({ error: "Input tidak valid", details: parsed.error.flatten() }, 400);
   }
-  // Hanya owner yang boleh memberi peran owner.
   if (parsed.data.role === "owner" && c.var.membership.role !== "owner") {
     return c.json({ error: "Hanya owner yang dapat menambah owner" }, 403);
   }
+  const email = parsed.data.email.toLowerCase();
+  const db = c.var.db;
 
-  const existing = await c.var.db
-    .select()
-    .from(userTable)
-    .where(eq(userTable.email, parsed.data.email))
-    .limit(1);
+  // Sudah punya akun? cukup tambahkan keanggotaan.
+  const existing = await db.select().from(userTable).where(eq(userTable.email, email)).limit(1);
+  let userId = existing[0]?.id;
 
-  if (existing[0]) {
-    const already = await c.var.db
-      .select()
-      .from(memberships)
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, existing[0].id)))
-      .limit(1);
-    if (already[0]) {
-      return c.json({ error: "User sudah menjadi anggota" }, 409);
-    }
-    await c.var.db.insert(memberships).values({
-      id: uid(),
-      businessId,
-      userId: existing[0].id,
-      role: parsed.data.role,
-      createdAt: now(),
-      updatedAt: now(),
+  if (!userId) {
+    userId = uid();
+    const ts = now();
+    await db.insert(userTable).values({
+      id: userId,
+      name: parsed.data.name,
+      email,
+      emailVerified: true,
+      createdAt: ts,
+      updatedAt: ts,
     });
-    return c.json({ status: "added" }, 201);
+    // Akun kredensial better-auth (password di-hash dengan util better-auth).
+    await db.insert(accountTable).values({
+      id: uid(),
+      accountId: userId,
+      providerId: "credential",
+      userId,
+      password: await hashPassword(parsed.data.password),
+      createdAt: ts,
+      updatedAt: ts,
+    });
   }
 
-  const token = uid();
-  await c.var.db.insert(invitations).values({
+  const already = await db
+    .select()
+    .from(memberships)
+    .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)))
+    .limit(1);
+  if (already[0]) {
+    return c.json({ error: "User sudah menjadi anggota usaha ini" }, 409);
+  }
+  await db.insert(memberships).values({
     id: uid(),
     businessId,
-    email: parsed.data.email,
+    userId,
     role: parsed.data.role,
-    token,
-    invitedBy: c.var.user.id,
-    status: "pending",
     createdAt: now(),
-    expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14), // 14 hari
+    updatedAt: now(),
   });
-  // Catatan: pengiriman email belum diaktifkan (fase lanjutan / R2+email provider).
-  return c.json({ status: "invited", token }, 201);
+  return c.json({ status: existing[0] ? "added_existing" : "created", userId }, 201);
 });
 
-// Terima undangan (user yang sudah login, email harus cocok).
-app.post("/invitations/accept", requireAuth, async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const token = typeof body.token === "string" ? body.token : "";
-  if (!token) return c.json({ error: "token wajib" }, 400);
-
-  const rows = await c.var.db.select().from(invitations).where(eq(invitations.token, token)).limit(1);
-  const inv = rows[0];
-  if (!inv || inv.status !== "pending") {
-    return c.json({ error: "Undangan tidak valid" }, 404);
-  }
-  if (inv.expiresAt.getTime() < Date.now()) {
-    return c.json({ error: "Undangan kedaluwarsa" }, 410);
-  }
-  if (inv.email.toLowerCase() !== c.var.user.email.toLowerCase()) {
-    return c.json({ error: "Undangan ditujukan untuk email lain" }, 403);
-  }
-
-  await c.var.db
-    .insert(memberships)
-    .values({
-      id: uid(),
-      businessId: inv.businessId,
-      userId: c.var.user.id,
-      role: inv.role,
-      createdAt: now(),
-      updatedAt: now(),
-    })
-    .onConflictDoNothing();
-  await c.var.db.update(invitations).set({ status: "accepted" }).where(eq(invitations.id, inv.id));
-
-  return c.json({ status: "accepted", businessId: inv.businessId });
-});
-
-// Ubah peran anggota (owner saja).
-app.patch("/:businessId/members/:userId", requireAuth, requireBusiness("owner"), async (c) => {
+// Ubah peran anggota.
+app.patch("/:businessId/members/:userId", requireAuth, requireBusiness("admin"), async (c) => {
+  const businessId = c.req.param("businessId");
+  const targetUserId = c.req.param("userId");
   const body = await c.req.json().catch(() => ({}));
   const parsed = roleSchema.safeParse(body.role);
   if (!parsed.success) return c.json({ error: "Peran tidak valid" }, 400);
-  const targetUserId = c.req.param("userId");
-  if (targetUserId === c.var.user.id) {
-    return c.json({ error: "Tidak bisa mengubah peran diri sendiri" }, 400);
-  }
+  if (targetUserId === c.var.user.id) return c.json({ error: "Tidak bisa mengubah peran diri sendiri" }, 400);
+
+  const guard = await guardOwnerOnly(c, businessId, targetUserId, parsed.data === "owner");
+  if (guard) return guard;
+
   await c.var.db
     .update(memberships)
     .set({ role: parsed.data, updatedAt: now() })
-    .where(and(eq(memberships.businessId, c.req.param("businessId")), eq(memberships.userId, targetUserId)));
+    .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, targetUserId)));
   return c.json({ ok: true });
 });
 
-// Keluarkan anggota (owner saja).
-app.delete("/:businessId/members/:userId", requireAuth, requireBusiness("owner"), async (c) => {
+// Reset password anggota.
+app.post("/:businessId/members/:userId/password", requireAuth, requireBusiness("admin"), async (c) => {
+  const businessId = c.req.param("businessId");
   const targetUserId = c.req.param("userId");
-  if (targetUserId === c.var.user.id) {
-    return c.json({ error: "Owner tidak bisa mengeluarkan diri sendiri" }, 400);
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = passwordResetSchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Password minimal 8 karakter" }, 400);
+
+  const guard = await guardOwnerOnly(c, businessId, targetUserId, false);
+  if (guard) return guard;
+
+  const hashed = await hashPassword(parsed.data.password);
+  const existingCred = await c.var.db
+    .select({ id: accountTable.id })
+    .from(accountTable)
+    .where(and(eq(accountTable.userId, targetUserId), eq(accountTable.providerId, "credential")))
+    .limit(1);
+
+  if (existingCred[0]) {
+    await c.var.db.update(accountTable).set({ password: hashed, updatedAt: now() }).where(eq(accountTable.id, existingCred[0].id));
+  } else {
+    // Belum punya akun kredensial → buat baru.
+    await c.var.db.insert(accountTable).values({
+      id: uid(),
+      accountId: targetUserId,
+      providerId: "credential",
+      userId: targetUserId,
+      password: hashed,
+      createdAt: now(),
+      updatedAt: now(),
+    });
   }
-  await c.var.db
-    .delete(memberships)
-    .where(and(eq(memberships.businessId, c.req.param("businessId")), eq(memberships.userId, targetUserId)));
   return c.json({ ok: true });
 });
+
+// Keluarkan anggota dari usaha (hapus keanggotaan, akun user tetap ada).
+app.delete("/:businessId/members/:userId", requireAuth, requireBusiness("admin"), async (c) => {
+  const businessId = c.req.param("businessId");
+  const targetUserId = c.req.param("userId");
+  if (targetUserId === c.var.user.id) return c.json({ error: "Tidak bisa mengeluarkan diri sendiri" }, 400);
+
+  const guard = await guardOwnerOnly(c, businessId, targetUserId, false);
+  if (guard) return guard;
+
+  await c.var.db
+    .delete(memberships)
+    .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, targetUserId)));
+  return c.json({ ok: true });
+});
+
+// Hanya owner yang boleh menyentuh anggota ber-peran owner / mengangkat owner.
+async function guardOwnerOnly(
+  c: Context<AppContext>,
+  businessId: string,
+  targetUserId: string,
+  promotingToOwner: boolean,
+) {
+  if (c.var.membership.role === "owner") return null;
+  const target = await c.var.db
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, targetUserId)))
+    .limit(1);
+  if (promotingToOwner || target[0]?.role === "owner") {
+    return c.json({ error: "Hanya owner yang dapat mengelola owner" }, 403);
+  }
+  return null;
+}
 
 export default app;

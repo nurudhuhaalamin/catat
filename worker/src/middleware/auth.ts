@@ -28,12 +28,13 @@ export const requireAuth = createMiddleware<AppContext>(async (c, next) => {
   await next();
 });
 
-const roleRank = { staff: 0, admin: 1, owner: 2 } as const;
+// Level akses: viewer (lihat) < pencatat (catat) < admin (kelola) < owner.
+const roleRank = { viewer: 0, pencatat: 1, admin: 2, owner: 3 } as const;
 export type Role = keyof typeof roleRank;
 
 // Wajib anggota lini usaha (dari header x-business-id atau param :businessId).
 // minRole opsional: minimal peran yang dibutuhkan.
-export function requireBusiness(minRole: Role = "staff") {
+export function requireBusiness(minRole: Role = "viewer") {
   return createMiddleware<AppContext>(async (c, next) => {
     const businessId = c.req.param("businessId") ?? c.req.header("x-business-id");
     if (!businessId) {
