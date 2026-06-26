@@ -173,7 +173,7 @@ export default function TransactionsPage() {
               {items.map((t) => (
                 <li
                   key={t.id}
-                  className={`card flex items-center justify-between ${canRecord ? "cursor-pointer active:bg-slate-50" : ""}`}
+                  className={`card flex items-center justify-between ${canRecord ? "cursor-pointer active:bg-slate-50 dark:active:bg-slate-800" : ""}`}
                   onClick={canRecord ? () => setSheet(t) : undefined}
                 >
                   <div className="min-w-0">
@@ -199,7 +199,7 @@ export default function TransactionsPage() {
                     </span>
                     {canRecord && (
                       <button
-                        className="text-slate-300 hover:text-red-500"
+                        className="text-slate-300 hover:text-red-500 dark:text-slate-600"
                         onClick={(e) => {
                           e.stopPropagation();
                           deleteLocal("transactions", businessId, t.id);
@@ -223,7 +223,7 @@ export default function TransactionsPage() {
 }
 
 function chip(active: boolean) {
-  return `shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${active ? "bg-brand text-white" : "bg-white text-slate-500 border border-slate-200"}`;
+  return `shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${active ? "bg-brand text-white" : "bg-white text-slate-500 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"}`;
 }
 
 function AddSheet({ businessId, tx, onClose }: { businessId: string; tx: LTransaction | null; onClose: () => void }) {
@@ -360,14 +360,14 @@ function AddSheet({ businessId, tx, onClose }: { businessId: string; tx: LTransa
 }
 
 function tab(active: boolean) {
-  return `rounded-xl py-2.5 text-sm font-medium ${active ? "bg-brand text-white" : "bg-slate-100 text-slate-500"}`;
+  return `rounded-xl py-2.5 text-sm font-medium ${active ? "bg-brand text-white" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"}`;
 }
 
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-2xl space-y-3 overflow-y-auto rounded-t-3xl bg-white p-5 pb-8" onClick={(e) => e.stopPropagation()}>
-        <div className="mx-auto h-1 w-10 rounded-full bg-slate-200" />
+      <div className="max-h-[92vh] w-full max-w-2xl space-y-3 overflow-y-auto rounded-t-3xl bg-white dark:bg-slate-900 p-5 pb-8" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto h-1 w-10 rounded-full bg-slate-200 dark:bg-slate-700" />
         <h3 className="text-lg font-bold">{title}</h3>
         {children}
       </div>

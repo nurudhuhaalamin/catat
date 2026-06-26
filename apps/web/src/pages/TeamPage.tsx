@@ -65,9 +65,9 @@ export default function TeamPage() {
               <p className="truncate text-xs text-slate-400">{m.email}</p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{roleLabel[m.role]}</span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{roleLabel[m.role]}</span>
               {canManage && (
-                <button className="text-slate-300 hover:text-brand" onClick={() => setEdit(m)} title="Kelola">
+                <button className="text-slate-300 hover:text-brand dark:text-slate-600" onClick={() => setEdit(m)} title="Kelola">
                   ⋯
                 </button>
               )}

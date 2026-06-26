@@ -330,7 +330,7 @@ export default function ReportsPage() {
             key={p}
             onClick={() => setPreset(p)}
             className={`rounded-full px-3 py-1.5 text-sm font-medium ${
-              preset === p ? "bg-brand text-white" : "bg-white text-slate-500 border border-slate-200"
+              preset === p ? "bg-brand text-white" : "bg-white text-slate-500 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
             }`}
           >
             {presetLabel(p)}
@@ -390,7 +390,7 @@ export default function ReportsPage() {
         {report.cashflow.map((c) => (
           <button
             key={c.label}
-            className="w-full border-b border-slate-50 py-1.5 text-left last:border-0 active:bg-slate-50"
+            className="w-full border-b border-slate-50 dark:border-slate-800 py-1.5 text-left last:border-0 active:bg-slate-50 dark:active:bg-slate-800"
             onClick={() => navigate(`/transactions?from=${c.from}&to=${c.to}`)}
           >
             <div className="flex justify-between text-sm font-medium">
@@ -418,10 +418,10 @@ export default function ReportsPage() {
         <h3 className="font-bold">Export Laporan</h3>
         <p className="text-xs text-slate-400">Sesuai rentang terpilih ({period}).</p>
         {EXPORTS.map((ex) => (
-          <div key={ex.label} className="flex items-center justify-between gap-2 border-b border-slate-50 py-1.5 last:border-0">
+          <div key={ex.label} className="flex items-center justify-between gap-2 border-b border-slate-50 dark:border-slate-800 py-1.5 last:border-0">
             <span className="text-sm">{ex.label}</span>
             <div className="flex gap-2">
-              <button className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 active:bg-slate-50" onClick={ex.csv}>
+              <button className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 active:bg-slate-50 dark:active:bg-slate-800" onClick={ex.csv}>
                 CSV
               </button>
               <button className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white active:bg-brand-dark" onClick={ex.pdf}>
@@ -461,7 +461,7 @@ function CatList({
     <div>
       <p className="mb-1 text-sm font-semibold text-slate-500">{title}</p>
       {rows.length === 0 ? (
-        <p className="text-sm text-slate-300">—</p>
+        <p className="text-sm muted">—</p>
       ) : (
         <ul className="space-y-1">
           {rows.map((r) => (
@@ -548,7 +548,7 @@ function AgingTable({ title, b, fmt, onClick }: { title: string; b: AgingBuckets
         {rows.map(([label, cents]) => (
           <li key={label} className="flex justify-between text-sm">
             <span className="text-slate-600">{label}</span>
-            <span className={cents > 0 ? "text-slate-800" : "text-slate-300"}>{fmt(cents)}</span>
+            <span className={cents > 0 ? "text-slate-800 dark:text-slate-200" : "text-slate-300 dark:text-slate-600"}>{fmt(cents)}</span>
           </li>
         ))}
         <li className="flex justify-between border-t border-slate-100 pt-1 text-sm font-bold">
