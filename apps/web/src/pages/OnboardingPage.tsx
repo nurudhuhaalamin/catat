@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { apiJson } from "../lib/api";
 import { useBusiness } from "../lib/businessContext";
 
 export default function OnboardingPage() {
-  const { businesses, refresh, setCurrentId } = useBusiness();
+  const { businesses, canCreateBusiness, refresh, setCurrentId } = useBusiness();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -28,6 +28,9 @@ export default function OnboardingPage() {
       setLoading(false);
     }
   }
+
+  // Hanya pemilik yang boleh membuat usaha.
+  if (!canCreateBusiness) return <Navigate to="/" replace />;
 
   return (
     <div className="mx-auto flex min-h-full max-w-sm flex-col justify-center p-6">

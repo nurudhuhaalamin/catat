@@ -40,7 +40,17 @@ app.get("/", requireAuth, async (c) => {
 });
 
 // Buat lini usaha baru (pembuat otomatis jadi owner) + kategori bawaan.
+// Hanya boleh oleh pemilik (owner ≥1 usaha) atau akun owner pertama (belum punya membership).
 app.post("/", requireAuth, async (c) => {
+  const mine = await c.var.db
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(eq(memberships.userId, c.var.user.id));
+  const canCreate = mine.length === 0 || mine.some((m) => m.role === "owner");
+  if (!canCreate) {
+    return c.json({ error: "Hanya pemilik yang dapat membuat lini usaha" }, 403);
+  }
+
   const body = await c.req.json().catch(() => ({}));
   const parsed = businessCreateSchema.safeParse(body);
   if (!parsed.success) {

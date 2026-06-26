@@ -7,7 +7,7 @@ import { syncNow } from "../lib/sync";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
-  const { current, businesses, refresh, setCurrentId } = useBusiness();
+  const { current, businesses, canCreateBusiness, refresh, setCurrentId } = useBusiness();
   const navigate = useNavigate();
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const isOwner = current?.role === "owner";
@@ -49,7 +49,7 @@ export default function SettingsPage() {
         <Item icon="🏷️" label="Kategori" onClick={() => navigate("/categories")} />
         <Item icon="👥" label="Kontak (pelanggan & pemasok)" onClick={() => navigate("/contacts")} />
         <Item icon="🧑‍🤝‍🧑" label="Kelola tim" onClick={() => navigate("/team")} />
-        <Item icon="➕" label="Tambah lini usaha" onClick={() => navigate("/onboarding")} />
+        {canCreateBusiness && <Item icon="➕" label="Tambah lini usaha" onClick={() => navigate("/onboarding")} />}
         <Item icon="🔄" label="Sinkronkan sekarang" onClick={manualSync} />
         {syncMsg && <p className="px-1 text-sm text-slate-500">{syncMsg}</p>}
       </div>
