@@ -306,11 +306,20 @@ export const debtPayments = sqliteTable(
   }),
 );
 
+// Lockout login per-IP untuk meredam brute-force.
+export const loginAttempts = sqliteTable("login_attempts", {
+  ip: text("ip").primaryKey(),
+  fails: integer("fails").notNull().default(0),
+  lockedUntil: integer("locked_until", { mode: "timestamp_ms" }),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const schema = {
   user,
   session,
   account,
   verification,
+  loginAttempts,
   businesses,
   memberships,
   invitations,

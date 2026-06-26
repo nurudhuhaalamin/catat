@@ -12,7 +12,7 @@ const nav = [
 ];
 
 export default function AppLayout() {
-  const { businesses, current, loading, setCurrentId } = useBusiness();
+  const { businesses, current, loading, canCreateBusiness, setCurrentId } = useBusiness();
   const navigate = useNavigate();
   const [online, setOnline] = useState(navigator.onLine);
 
@@ -52,7 +52,7 @@ export default function AppLayout() {
               {b.name}
             </option>
           ))}
-          <option value="__new__">+ Tambah lini usaha…</option>
+          {canCreateBusiness && <option value="__new__">+ Tambah lini usaha…</option>}
         </select>
         <span
           className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${

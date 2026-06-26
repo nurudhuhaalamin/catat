@@ -14,6 +14,7 @@ interface BusinessCtx {
   businesses: BusinessWithRole[];
   current: BusinessWithRole | null;
   loading: boolean;
+  canCreateBusiness: boolean;
   setCurrentId: (id: string) => void;
   refresh: () => Promise<void>;
 }
@@ -50,9 +51,13 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const current = businesses.find((b) => b.id === currentId) ?? null;
+  // Hanya pemilik (owner ≥1 usaha) atau akun yang belum punya usaha yang boleh membuat usaha.
+  const canCreateBusiness = !loading && (businesses.length === 0 || businesses.some((b) => b.role === "owner"));
 
   return (
-    <Ctx.Provider value={{ businesses, current, loading, setCurrentId, refresh }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ businesses, current, loading, canCreateBusiness, setCurrentId, refresh }}>
+      {children}
+    </Ctx.Provider>
   );
 }
 

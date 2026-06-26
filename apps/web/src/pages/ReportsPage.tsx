@@ -7,6 +7,7 @@ import { balanceSheet, type BalanceSheet } from "../lib/finance";
 import { useBusiness } from "../lib/businessContext";
 import { presetRange, customRange, presetLabel, type RangePreset, type DateRange } from "../lib/dateRange";
 import { downloadCsv } from "../lib/csv";
+import { exportPdf } from "../lib/pdf";
 
 const DAY = 86_400_000;
 const MONTHS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -28,6 +29,17 @@ interface AgingBuckets {
 
 function emptyAging(): AgingBuckets {
   return { belum: 0, d1_30: 0, d31_60: 0, d60: 0, tanpa: 0, total: 0 };
+}
+
+function agingRowsCsv(jenis: string, b: AgingBuckets): (string | number)[][] {
+  return [
+    [jenis, "Belum jatuh tempo", b.belum / 100],
+    [jenis, "Lewat 1-30 hari", b.d1_30 / 100],
+    [jenis, "Lewat 31-60 hari", b.d31_60 / 100],
+    [jenis, "Lewat >60 hari", b.d60 / 100],
+    [jenis, "Tanpa tanggal", b.tanpa / 100],
+    [jenis, "Total", b.total / 100],
+  ];
 }
 
 function addAging(b: AgingBuckets, remain: number, dueDate: number | null | undefined, now: number) {
@@ -159,23 +171,153 @@ export default function ReportsPage() {
   if (!report) return <p className="text-slate-400">Memuat…</p>;
 
   const m = (c: number) => formatMoney(c, currency);
+  const r = report;
+  const businessName = current?.name ?? "Usaha";
+  const period = `${new Date(r.range.from).toLocaleDateString("id-ID")} – ${new Date(r.range.to).toLocaleDateString("id-ID")}`;
+  const pdfBase = (title: string, fileName: string, tables: { title?: string; head: string[]; rows: (string | number)[][] }[]) =>
+    exportPdf({ fileName, business: businessName, title, period, tables });
 
-  function exportTransaksi() {
-    if (!report) return;
-    downloadCsv(
-      `transaksi-${fromStr}.csv`,
-      ["Tanggal", "Tipe", "Kategori", "Kontak", "Jumlah", "Catatan"],
-      report.txForCsv.map((r) => [r.tanggal, r.tipe, r.kategori, r.kontak, r.jumlah, r.catatan]),
-    );
-  }
-  function exportHutang() {
-    if (!report) return;
-    downloadCsv(
-      `piutang-hutang.csv`,
-      ["Jenis", "Kontak", "Jumlah", "Dibayar", "Sisa", "Jatuh Tempo", "Status", "Catatan"],
-      report.debtsForCsv.map((r) => [r.jenis, r.kontak, r.jumlah, r.dibayar, r.sisa, r.jatuhTempo, r.status, r.catatan]),
-    );
-  }
+  // Tabel-tabel per laporan (dipakai untuk PDF & CSV).
+  const labaTables = () => {
+    const inc = r.income.map((x) => [x.name, m(x.cents)]);
+    inc.push(["TOTAL PEMASUKAN", m(r.totalIncome)]);
+    const exp = r.expense.map((x) => [x.name, m(x.cents)]);
+    exp.push(["TOTAL PENGELUARAN", m(r.totalExpense)]);
+    return [
+      { title: "Pemasukan", head: ["Kategori", "Jumlah"], rows: inc },
+      { title: "Pengeluaran", head: ["Kategori", "Jumlah"], rows: exp },
+      { title: "Ringkasan", head: ["Keterangan", "Jumlah"], rows: [["Laba/Rugi Bersih", m(r.net)]] },
+    ];
+  };
+  const arusTables = () => [
+    {
+      head: ["Bulan", "Masuk", "Keluar", "Selisih"],
+      rows: r.cashflow.map((c) => [c.label, m(c.income), m(c.expense), m(c.income - c.expense)]),
+    },
+  ];
+  const neracaTables = () => [
+    {
+      title: "Saldo Kas & Bank",
+      head: ["Akun", "Saldo"],
+      rows: [...r.bs.cashByAccount.map((a) => [a.account.name, m(a.balance)]), ["TOTAL", m(r.bs.cashTotal)]],
+    },
+    {
+      title: "Aset",
+      head: ["Pos", "Jumlah"],
+      rows: [
+        ["Kas & Bank", m(r.bs.cashTotal)],
+        ["Piutang", m(r.bs.receivable)],
+        ["Aset lain", m(r.bs.otherAssets)],
+        ["TOTAL ASET", m(r.bs.assets)],
+      ],
+    },
+    {
+      title: "Liabilitas & Ekuitas",
+      head: ["Pos", "Jumlah"],
+      rows: [
+        ["Hutang", m(r.bs.liabilities)],
+        ["Modal", m(r.bs.capital)],
+        ["Laba (rugi) berjalan", m(r.bs.profit)],
+        ["TOTAL LIABILITAS & EKUITAS", m(r.bs.liabilities + r.bs.equity)],
+      ],
+    },
+  ];
+  const agingRows = (b: AgingBuckets) => [
+    ["Belum jatuh tempo", m(b.belum)],
+    ["Lewat 1–30 hari", m(b.d1_30)],
+    ["Lewat 31–60 hari", m(b.d31_60)],
+    ["Lewat >60 hari", m(b.d60)],
+    ["Tanpa tanggal", m(b.tanpa)],
+    ["TOTAL", m(b.total)],
+  ];
+  const agingTables = () => [
+    { title: "Piutang", head: ["Umur", "Jumlah"], rows: agingRows(r.receivable) },
+    { title: "Hutang", head: ["Umur", "Jumlah"], rows: agingRows(r.payable) },
+  ];
+
+  const EXPORTS: { label: string; csv: () => void; pdf: () => void }[] = [
+    {
+      label: "Laba-Rugi",
+      pdf: () => pdfBase("Laporan Laba-Rugi", "laba-rugi.pdf", labaTables()),
+      csv: () =>
+        downloadCsv(
+          "laba-rugi.csv",
+          ["Bagian", "Kategori", "Jumlah"],
+          [
+            ...r.income.map((x) => ["Pemasukan", x.name, x.cents / 100]),
+            ...r.expense.map((x) => ["Pengeluaran", x.name, x.cents / 100]),
+            ["Ringkasan", "Laba/Rugi Bersih", r.net / 100],
+          ],
+        ),
+    },
+    {
+      label: "Arus Kas",
+      pdf: () => pdfBase("Laporan Arus Kas", "arus-kas.pdf", arusTables()),
+      csv: () =>
+        downloadCsv(
+          "arus-kas.csv",
+          ["Bulan", "Masuk", "Keluar", "Selisih"],
+          r.cashflow.map((c) => [c.label, c.income / 100, c.expense / 100, (c.income - c.expense) / 100]),
+        ),
+    },
+    {
+      label: "Posisi Keuangan (Neraca)",
+      pdf: () => pdfBase("Laporan Posisi Keuangan", "posisi-keuangan.pdf", neracaTables()),
+      csv: () =>
+        downloadCsv("posisi-keuangan.csv", ["Pos", "Jumlah"], [
+          ...r.bs.cashByAccount.map((a) => [`Saldo ${a.account.name}`, a.balance / 100]),
+          ["Total Kas & Bank", r.bs.cashTotal / 100],
+          ["Piutang", r.bs.receivable / 100],
+          ["Aset lain", r.bs.otherAssets / 100],
+          ["Total Aset", r.bs.assets / 100],
+          ["Hutang", r.bs.liabilities / 100],
+          ["Modal", r.bs.capital / 100],
+          ["Laba berjalan", r.bs.profit / 100],
+          ["Ekuitas", r.bs.equity / 100],
+        ]),
+    },
+    {
+      label: "Umur Piutang & Hutang",
+      pdf: () => pdfBase("Umur Piutang & Hutang", "umur-piutang-hutang.pdf", agingTables()),
+      csv: () =>
+        downloadCsv("umur-piutang-hutang.csv", ["Jenis", "Umur", "Jumlah"], [
+          ...agingRowsCsv("Piutang", r.receivable),
+          ...agingRowsCsv("Hutang", r.payable),
+        ]),
+    },
+    {
+      label: "Transaksi (rinci)",
+      pdf: () =>
+        pdfBase("Daftar Transaksi", "transaksi.pdf", [
+          {
+            head: ["Tanggal", "Tipe", "Kategori", "Akun", "Jumlah", "Catatan"],
+            rows: r.txForCsv.map((x) => [x.tanggal, x.tipe, x.kategori, x.kontak, m(Math.round(x.jumlah * 100)), x.catatan]),
+          },
+        ]),
+      csv: () =>
+        downloadCsv(
+          "transaksi.csv",
+          ["Tanggal", "Tipe", "Kategori", "Kontak", "Jumlah", "Catatan"],
+          r.txForCsv.map((x) => [x.tanggal, x.tipe, x.kategori, x.kontak, x.jumlah, x.catatan]),
+        ),
+    },
+    {
+      label: "Piutang & Hutang (rinci)",
+      pdf: () =>
+        pdfBase("Daftar Piutang & Hutang", "piutang-hutang.pdf", [
+          {
+            head: ["Jenis", "Kontak", "Jumlah", "Sisa", "Jatuh Tempo", "Status"],
+            rows: r.debtsForCsv.map((x) => [x.jenis, x.kontak, m(Math.round(x.jumlah * 100)), m(Math.round(x.sisa * 100)), x.jatuhTempo, x.status]),
+          },
+        ]),
+      csv: () =>
+        downloadCsv(
+          "piutang-hutang.csv",
+          ["Jenis", "Kontak", "Jumlah", "Dibayar", "Sisa", "Jatuh Tempo", "Status", "Catatan"],
+          r.debtsForCsv.map((x) => [x.jenis, x.kontak, x.jumlah, x.dibayar, x.sisa, x.jatuhTempo, x.status, x.catatan]),
+        ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -273,16 +415,21 @@ export default function ReportsPage() {
 
       {/* Export */}
       <section className="card space-y-2">
-        <h3 className="font-bold">Export</h3>
-        <button className="btn-ghost w-full justify-start" onClick={exportTransaksi}>
-          ⬇️ Transaksi (CSV) — sesuai rentang
-        </button>
-        <button className="btn-ghost w-full justify-start" onClick={exportHutang}>
-          ⬇️ Piutang & Hutang (CSV)
-        </button>
-        <button className="btn-ghost w-full justify-start" onClick={() => window.print()}>
-          🖨️ Cetak / simpan PDF
-        </button>
+        <h3 className="font-bold">Export Laporan</h3>
+        <p className="text-xs text-slate-400">Sesuai rentang terpilih ({period}).</p>
+        {EXPORTS.map((ex) => (
+          <div key={ex.label} className="flex items-center justify-between gap-2 border-b border-slate-50 py-1.5 last:border-0">
+            <span className="text-sm">{ex.label}</span>
+            <div className="flex gap-2">
+              <button className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 active:bg-slate-50" onClick={ex.csv}>
+                CSV
+              </button>
+              <button className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white active:bg-brand-dark" onClick={ex.pdf}>
+                PDF
+              </button>
+            </div>
+          </div>
+        ))}
       </section>
     </div>
   );
