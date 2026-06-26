@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { signIn } from "../lib/auth";
+import InstallButton from "../components/InstallButton";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -18,8 +19,11 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-sm flex-col justify-center p-6">
-      <h1 className="mb-1 text-2xl font-bold text-brand-dark">Catat</h1>
-      <p className="mb-6 text-slate-500">Masuk ke akun Anda</p>
+      <div className="mb-4 flex items-center gap-2">
+        <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-600 text-lg font-bold text-white">C</div>
+        <h1 className="text-2xl font-bold">Catat</h1>
+      </div>
+      <p className="mb-6 muted">Masuk ke akun Anda</p>
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
           <label className="label">Email</label>
@@ -34,9 +38,12 @@ export default function LoginPage() {
           {loading ? "Memproses…" : "Masuk"}
         </button>
       </form>
-      <p className="mt-6 text-center text-xs text-slate-400">
+      <p className="mt-6 text-center text-xs muted">
         Akun hanya dibuat oleh pemilik usaha. Hubungi pemilik bila belum punya akses.
       </p>
+      <div className="mt-4">
+        <InstallButton />
+      </div>
     </div>
   );
 }
