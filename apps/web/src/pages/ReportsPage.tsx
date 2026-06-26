@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { formatMoney } from "@catat/shared";
 import { db } from "../lib/db";
@@ -11,6 +12,7 @@ const DAY = 86_400_000;
 const MONTHS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
 interface NamedTotal {
+  id: string | null;
   name: string;
   cents: number;
 }
@@ -40,6 +42,7 @@ function addAging(b: AgingBuckets, remain: number, dueDate: number | null | unde
 
 export default function ReportsPage() {
   const { current } = useBusiness();
+  const navigate = useNavigate();
   const businessId = current?.id ?? "";
   const currency = current?.currency ?? "IDR";
 
@@ -67,18 +70,21 @@ export default function ReportsPage() {
 
     const txs = txAll.filter((t) => !t.deletedAt && t.occurredAt >= range.from && t.occurredAt <= range.to);
 
-    // Laba-rugi: kelompokkan per kategori.
-    const incomeMap = new Map<string, number>();
-    const expenseMap = new Map<string, number>();
+    // Laba-rugi: kelompokkan per kategori (key = categoryId, "" = tanpa kategori).
+    const incomeMap = new Map<string, { name: string; cents: number }>();
+    const expenseMap = new Map<string, { name: string; cents: number }>();
     const monthMap = new Map<string, { income: number; expense: number }>();
     let totalIncome = 0;
     let totalExpense = 0;
 
     for (const t of txs) {
       if (t.type === "transfer") continue; // transfer bukan pemasukan/pengeluaran
-      const key = t.categoryId ? (catName.get(t.categoryId) ?? "Tanpa kategori") : "Tanpa kategori";
+      const catId = t.categoryId ?? "";
+      const name = t.categoryId ? (catName.get(t.categoryId) ?? "Tanpa kategori") : "Tanpa kategori";
       const target = t.type === "income" ? incomeMap : expenseMap;
-      target.set(key, (target.get(key) ?? 0) + t.amountCents);
+      const cur = target.get(catId) ?? { name, cents: 0 };
+      cur.cents += t.amountCents;
+      target.set(catId, cur);
       if (t.type === "income") totalIncome += t.amountCents;
       else totalExpense += t.amountCents;
 
@@ -90,14 +96,16 @@ export default function ReportsPage() {
       monthMap.set(mk, bucket);
     }
 
-    const toSorted = (m: Map<string, number>): NamedTotal[] =>
-      [...m.entries()].map(([name, cents]) => ({ name, cents })).sort((a, b) => b.cents - a.cents);
+    const toSorted = (m: Map<string, { name: string; cents: number }>): NamedTotal[] =>
+      [...m.entries()].map(([id, v]) => ({ id: id || null, name: v.name, cents: v.cents })).sort((a, b) => b.cents - a.cents);
 
     const cashflow = [...monthMap.entries()]
       .sort((a, b) => (a[0] < b[0] ? -1 : 1))
       .map(([mk, v]) => {
-        const [y, mo] = mk.split("-");
-        return { label: `${MONTHS_ID[Number(mo)]} ${y}`, income: v.income, expense: v.expense };
+        const [y, mo] = mk.split("-").map(Number);
+        const from = new Date(y, mo, 1).getTime();
+        const to = new Date(y, mo + 1, 0, 23, 59, 59, 999).getTime();
+        return { label: `${MONTHS_ID[mo]} ${y}`, income: v.income, expense: v.expense, from, to };
       });
 
     // Aging piutang & hutang dari sisa hutang yang belum lunas.
@@ -112,6 +120,7 @@ export default function ReportsPage() {
     }
 
     return {
+      range,
       bs: balanceSheet(accountsAll, txAll, debtsAll, paymentsAll, cats),
       income: toSorted(incomeMap),
       expense: toSorted(expenseMap),
@@ -197,8 +206,28 @@ export default function ReportsPage() {
       {/* Laba-Rugi */}
       <section className="card space-y-3">
         <h3 className="font-bold">Laba-Rugi</h3>
-        <CatList title="Pemasukan" rows={report.income} tone="text-emerald-600" fmt={m} />
-        <CatList title="Pengeluaran" rows={report.expense} tone="text-red-600" fmt={m} />
+        <CatList
+          title="Pemasukan"
+          rows={report.income}
+          tone="text-emerald-600"
+          fmt={m}
+          onRow={(r) =>
+            navigate(
+              `/transactions?type=income&from=${report.range.from}&to=${report.range.to}${r.id ? `&category=${r.id}` : ""}`,
+            )
+          }
+        />
+        <CatList
+          title="Pengeluaran"
+          rows={report.expense}
+          tone="text-red-600"
+          fmt={m}
+          onRow={(r) =>
+            navigate(
+              `/transactions?type=expense&from=${report.range.from}&to=${report.range.to}${r.id ? `&category=${r.id}` : ""}`,
+            )
+          }
+        />
         <div className="space-y-1 border-t border-slate-100 pt-3 text-sm">
           <Row label="Total Pemasukan" value={m(report.totalIncome)} />
           <Row label="Total Pengeluaran" value={m(report.totalExpense)} />
@@ -207,38 +236,39 @@ export default function ReportsPage() {
             <span className={report.net >= 0 ? "text-emerald-600" : "text-red-600"}>{m(report.net)}</span>
           </div>
         </div>
-        <p className="text-xs text-slate-400">Berbasis kas (pemasukan − pengeluaran), tanpa HPP stok.</p>
       </section>
 
       {/* Posisi Keuangan / Neraca */}
-      <PosisiKeuangan bs={report.bs} fmt={m} />
+      <PosisiKeuangan bs={report.bs} fmt={m} onAccount={(id) => navigate(`/transactions?account=${id}`)} />
 
       {/* Arus Kas */}
       <section className="card space-y-2">
         <h3 className="font-bold">Arus Kas per Bulan</h3>
         {report.cashflow.length === 0 && <p className="text-sm text-slate-400">Belum ada transaksi pada rentang ini.</p>}
         {report.cashflow.map((c) => (
-          <div key={c.label} className="border-b border-slate-50 py-1.5 last:border-0">
+          <button
+            key={c.label}
+            className="w-full border-b border-slate-50 py-1.5 text-left last:border-0 active:bg-slate-50"
+            onClick={() => navigate(`/transactions?from=${c.from}&to=${c.to}`)}
+          >
             <div className="flex justify-between text-sm font-medium">
-              <span>{c.label}</span>
-              <span className={c.income - c.expense >= 0 ? "text-emerald-600" : "text-red-600"}>
-                {m(c.income - c.expense)}
-              </span>
+              <span>{c.label} ›</span>
+              <span className={c.income - c.expense >= 0 ? "text-emerald-600" : "text-red-600"}>{m(c.income - c.expense)}</span>
             </div>
             <div className="flex justify-between text-xs text-slate-400">
               <span>Masuk {m(c.income)}</span>
               <span>Keluar {m(c.expense)}</span>
             </div>
-          </div>
+          </button>
         ))}
       </section>
 
       {/* Aging */}
       <section className="card space-y-3">
         <h3 className="font-bold">Umur Piutang & Hutang</h3>
-        <AgingTable title="Piutang (orang berhutang ke kita)" b={report.receivable} fmt={m} />
-        <AgingTable title="Hutang (kita berhutang)" b={report.payable} fmt={m} />
-        <p className="text-xs text-slate-400">Berdasarkan sisa yang belum lunas per hari ini.</p>
+        <AgingTable title="Piutang (orang berhutang ke kita)" b={report.receivable} fmt={m} onClick={() => navigate("/debts?dir=receivable")} />
+        <AgingTable title="Hutang (kita berhutang)" b={report.payable} fmt={m} onClick={() => navigate("/debts?dir=payable")} />
+        <p className="text-xs text-slate-400">Berdasarkan sisa yang belum lunas per hari ini. Ketuk untuk lihat daftar.</p>
       </section>
 
       {/* Export */}
@@ -267,7 +297,19 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CatList({ title, rows, tone, fmt }: { title: string; rows: NamedTotal[]; tone: string; fmt: (c: number) => string }) {
+function CatList({
+  title,
+  rows,
+  tone,
+  fmt,
+  onRow,
+}: {
+  title: string;
+  rows: NamedTotal[];
+  tone: string;
+  fmt: (c: number) => string;
+  onRow?: (r: NamedTotal) => void;
+}) {
   return (
     <div>
       <p className="mb-1 text-sm font-semibold text-slate-500">{title}</p>
@@ -276,9 +318,11 @@ function CatList({ title, rows, tone, fmt }: { title: string; rows: NamedTotal[]
       ) : (
         <ul className="space-y-1">
           {rows.map((r) => (
-            <li key={r.name} className="flex justify-between text-sm">
-              <span className="text-slate-600">{r.name}</span>
-              <span className={tone}>{fmt(r.cents)}</span>
+            <li key={r.id ?? r.name}>
+              <button className="flex w-full justify-between text-sm active:opacity-70" onClick={() => onRow?.(r)}>
+                <span className="text-slate-600">{r.name} ›</span>
+                <span className={tone}>{fmt(r.cents)}</span>
+              </button>
             </li>
           ))}
         </ul>
@@ -287,7 +331,7 @@ function CatList({ title, rows, tone, fmt }: { title: string; rows: NamedTotal[]
   );
 }
 
-function PosisiKeuangan({ bs, fmt }: { bs: BalanceSheet; fmt: (c: number) => string }) {
+function PosisiKeuangan({ bs, fmt, onAccount }: { bs: BalanceSheet; fmt: (c: number) => string; onAccount?: (id: string) => void }) {
   return (
     <section className="card space-y-3">
       <h3 className="font-bold">Posisi Keuangan</h3>
@@ -296,9 +340,11 @@ function PosisiKeuangan({ bs, fmt }: { bs: BalanceSheet; fmt: (c: number) => str
         <p className="mb-1 text-sm font-semibold text-slate-500">Saldo Kas & Bank</p>
         <ul className="space-y-1 text-sm">
           {bs.cashByAccount.map(({ account, balance }) => (
-            <li key={account.id} className="flex justify-between">
-              <span className="text-slate-600">{account.name}</span>
-              <span>{fmt(balance)}</span>
+            <li key={account.id}>
+              <button className="flex w-full justify-between active:opacity-70" onClick={() => onAccount?.(account.id)}>
+                <span className="text-slate-600">{account.name} ›</span>
+                <span>{fmt(balance)}</span>
+              </button>
             </li>
           ))}
           <li className="flex justify-between border-t border-slate-100 pt-1 font-semibold">
@@ -338,7 +384,7 @@ function Line({ label, value, bold }: { label: string; value: string; bold?: boo
   );
 }
 
-function AgingTable({ title, b, fmt }: { title: string; b: AgingBuckets; fmt: (c: number) => string }) {
+function AgingTable({ title, b, fmt, onClick }: { title: string; b: AgingBuckets; fmt: (c: number) => string; onClick?: () => void }) {
   const rows: [string, number][] = [
     ["Belum jatuh tempo", b.belum],
     ["Lewat 1–30 hari", b.d1_30],
@@ -348,7 +394,9 @@ function AgingTable({ title, b, fmt }: { title: string; b: AgingBuckets; fmt: (c
   ];
   return (
     <div>
-      <p className="mb-1 text-sm font-semibold text-slate-500">{title}</p>
+      <button className="mb-1 text-sm font-semibold text-brand active:opacity-70" onClick={onClick}>
+        {title} ›
+      </button>
       <ul className="space-y-1">
         {rows.map(([label, cents]) => (
           <li key={label} className="flex justify-between text-sm">

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { formatMoney } from "@catat/shared";
 import { db, type LTransaction } from "../lib/db";
@@ -6,6 +7,23 @@ import { saveLocal, deleteLocal } from "../lib/sync";
 import { useBusiness } from "../lib/businessContext";
 
 type TxType = "income" | "expense" | "transfer";
+type Filter = { q: string; type: "all" | TxType; accountId: string; categoryId: string; from: number | null; to: number | null };
+
+const emptyFilter: Filter = { q: "", type: "all", accountId: "", categoryId: "", from: null, to: null };
+
+function dayKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+function dayLabel(ts: number): string {
+  const d = new Date(ts);
+  const today = new Date();
+  const yest = new Date();
+  yest.setDate(today.getDate() - 1);
+  if (dayKey(ts) === dayKey(today.getTime())) return "Hari ini";
+  if (dayKey(ts) === dayKey(yest.getTime())) return "Kemarin";
+  return d.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
 
 export default function TransactionsPage() {
   const { current } = useBusiness();
@@ -13,21 +31,63 @@ export default function TransactionsPage() {
   const currency = current?.currency ?? "IDR";
   const canRecord = current?.role !== "viewer";
   const [sheet, setSheet] = useState<LTransaction | "new" | null>(null);
+  const [searchParams] = useSearchParams();
+  const [filter, setFilter] = useState<Filter>(emptyFilter);
+  const [showFilter, setShowFilter] = useState(false);
+
+  // Inisialisasi / sinkronkan filter dari query string (untuk drill-down dari Beranda/Laporan).
+  useEffect(() => {
+    const type = (searchParams.get("type") as Filter["type"]) ?? "all";
+    const accountId = searchParams.get("account") ?? "";
+    const categoryId = searchParams.get("category") ?? "";
+    const from = searchParams.get("from") ? Number(searchParams.get("from")) : null;
+    const to = searchParams.get("to") ? Number(searchParams.get("to")) : null;
+    const q = searchParams.get("q") ?? "";
+    setFilter({ q, type: ["income", "expense", "transfer"].includes(type) ? type : "all", accountId, categoryId, from, to });
+    if (accountId || categoryId || from || to || (type && type !== "all")) setShowFilter(true);
+  }, [searchParams]);
 
   const data = useLiveQuery(async () => {
-    if (!businessId) return { txs: [], accountName: new Map<string, string>() };
-    const [txs, accounts] = await Promise.all([
+    if (!businessId) return null;
+    const [txs, accounts, categories] = await Promise.all([
       db.transactions.where("businessId").equals(businessId).reverse().sortBy("occurredAt"),
       db.accounts.where("businessId").equals(businessId).toArray(),
+      db.categories.where("businessId").equals(businessId).toArray(),
     ]);
     return {
       txs: txs.filter((t) => !t.deletedAt),
+      accounts: accounts.filter((a) => !a.deletedAt),
+      categories: categories.filter((c) => !c.deletedAt),
       accountName: new Map(accounts.map((a) => [a.id, a.name])),
     };
   }, [businessId]);
 
-  const txs = data?.txs ?? [];
+  const filtered = useMemo(() => {
+    const txs = data?.txs ?? [];
+    const q = filter.q.trim().toLowerCase();
+    return txs.filter((t) => {
+      if (filter.type !== "all" && t.type !== filter.type) return false;
+      if (filter.accountId && t.accountId !== filter.accountId && t.toAccountId !== filter.accountId) return false;
+      if (filter.categoryId && t.categoryId !== filter.categoryId) return false;
+      if (filter.from != null && t.occurredAt < filter.from) return false;
+      if (filter.to != null && t.occurredAt > filter.to) return false;
+      if (q && !(t.note ?? "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [data, filter]);
+
+  // Kelompokkan per tanggal (sudah urut terbaru dulu).
+  const groups = useMemo(() => {
+    const map = new Map<string, LTransaction[]>();
+    for (const t of filtered) {
+      const k = dayKey(t.occurredAt);
+      (map.get(k) ?? map.set(k, []).get(k)!).push(t);
+    }
+    return [...map.values()];
+  }, [filtered]);
+
   const accountName = data?.accountName ?? new Map<string, string>();
+  const hasFilter = filter.q || filter.type !== "all" || filter.accountId || filter.categoryId || filter.from || filter.to;
 
   return (
     <div className="space-y-3">
@@ -40,57 +100,130 @@ export default function TransactionsPage() {
         )}
       </div>
 
-      {txs.length === 0 && <p className="py-10 text-center text-slate-400">Belum ada transaksi.</p>}
+      {/* Cari + filter */}
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <input
+            className="input"
+            placeholder="Cari catatan…"
+            value={filter.q}
+            onChange={(e) => setFilter((f) => ({ ...f, q: e.target.value }))}
+          />
+          <button className="btn-ghost px-3" onClick={() => setShowFilter((s) => !s)} title="Filter">
+            ⚙︎
+          </button>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {(["all", "income", "expense", "transfer"] as const).map((t) => (
+            <button key={t} className={chip(filter.type === t)} onClick={() => setFilter((f) => ({ ...f, type: t }))}>
+              {t === "all" ? "Semua" : t === "income" ? "Masuk" : t === "expense" ? "Keluar" : "Transfer"}
+            </button>
+          ))}
+        </div>
+        {showFilter && (
+          <div className="card space-y-2">
+            <select className="input" value={filter.accountId} onChange={(e) => setFilter((f) => ({ ...f, accountId: e.target.value }))}>
+              <option value="">Semua akun</option>
+              {(data?.accounts ?? []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            <select className="input" value={filter.categoryId} onChange={(e) => setFilter((f) => ({ ...f, categoryId: e.target.value }))}>
+              <option value="">Semua kategori</option>
+              {(data?.categories ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.kind === "income" ? "masuk" : "keluar"})
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-2">
+              <input
+                className="input"
+                type="date"
+                value={filter.from ? new Date(filter.from).toISOString().slice(0, 10) : ""}
+                onChange={(e) => setFilter((f) => ({ ...f, from: e.target.value ? new Date(e.target.value).setHours(0, 0, 0, 0) : null }))}
+              />
+              <span className="text-slate-400">s/d</span>
+              <input
+                className="input"
+                type="date"
+                value={filter.to ? new Date(filter.to).toISOString().slice(0, 10) : ""}
+                onChange={(e) => setFilter((f) => ({ ...f, to: e.target.value ? new Date(e.target.value).setHours(23, 59, 59, 999) : null }))}
+              />
+            </div>
+            {hasFilter && (
+              <button className="btn-ghost w-full text-sm" onClick={() => setFilter(emptyFilter)}>
+                Reset filter
+              </button>
+            )}
+          </div>
+        )}
+        <p className="px-1 text-xs text-slate-400">{filtered.length} transaksi</p>
+      </div>
 
-      <ul className="space-y-2">
-        {txs.map((t) => (
-          <li
-            key={t.id}
-            className={`card flex items-center justify-between ${canRecord ? "cursor-pointer active:bg-slate-50" : ""}`}
-            onClick={canRecord ? () => setSheet(t) : undefined}
-          >
-            <div className="min-w-0">
-              <p className="truncate font-medium">
-                {t.note || (t.type === "income" ? "Pemasukan" : t.type === "expense" ? "Pengeluaran" : "Transfer")}
-              </p>
-              <p className="text-xs text-slate-400">
-                {new Date(t.occurredAt).toLocaleDateString("id-ID")}
-                {t.type === "transfer"
-                  ? ` · ${accountName.get(t.accountId ?? "") ?? "?"} → ${accountName.get(t.toAccountId ?? "") ?? "?"}`
-                  : t.accountId
-                    ? ` · ${accountName.get(t.accountId) ?? "?"}`
-                    : ""}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span
-                className={`font-semibold ${
-                  t.type === "income" ? "text-emerald-600" : t.type === "expense" ? "text-red-600" : "text-slate-500"
-                }`}
-              >
-                {t.type === "income" ? "+" : t.type === "expense" ? "−" : ""}
-                {formatMoney(t.amountCents, currency)}
-              </span>
-              {canRecord && (
-                <button
-                  className="text-slate-300 hover:text-red-500"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteLocal("transactions", businessId, t.id);
-                  }}
-                  title="Hapus"
+      {filtered.length === 0 && <p className="py-10 text-center text-slate-400">{hasFilter ? "Tidak ada yang cocok." : "Belum ada transaksi."}</p>}
+
+      <div className="space-y-4">
+        {groups.map((items) => (
+          <div key={dayKey(items[0].occurredAt)} className="space-y-2">
+            <p className="px-1 text-xs font-semibold text-slate-400">{dayLabel(items[0].occurredAt)}</p>
+            <ul className="space-y-2">
+              {items.map((t) => (
+                <li
+                  key={t.id}
+                  className={`card flex items-center justify-between ${canRecord ? "cursor-pointer active:bg-slate-50" : ""}`}
+                  onClick={canRecord ? () => setSheet(t) : undefined}
                 >
-                  ✕
-                </button>
-              )}
-            </div>
-          </li>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {t.note || (t.type === "income" ? "Pemasukan" : t.type === "expense" ? "Pengeluaran" : "Transfer")}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {t.type === "transfer"
+                        ? `${accountName.get(t.accountId ?? "") ?? "?"} → ${accountName.get(t.toAccountId ?? "") ?? "?"}`
+                        : t.accountId
+                          ? accountName.get(t.accountId) ?? "?"
+                          : "Tanpa akun"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`font-semibold ${
+                        t.type === "income" ? "text-emerald-600" : t.type === "expense" ? "text-red-600" : "text-slate-500"
+                      }`}
+                    >
+                      {t.type === "income" ? "+" : t.type === "expense" ? "−" : ""}
+                      {formatMoney(t.amountCents, currency)}
+                    </span>
+                    {canRecord && (
+                      <button
+                        className="text-slate-300 hover:text-red-500"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteLocal("transactions", businessId, t.id);
+                        }}
+                        title="Hapus"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         ))}
-      </ul>
+      </div>
 
       {sheet && <AddSheet businessId={businessId} tx={sheet === "new" ? null : sheet} onClose={() => setSheet(null)} />}
     </div>
   );
+}
+
+function chip(active: boolean) {
+  return `shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${active ? "bg-brand text-white" : "bg-white text-slate-500 border border-slate-200"}`;
 }
 
 function AddSheet({ businessId, tx, onClose }: { businessId: string; tx: LTransaction | null; onClose: () => void }) {
