@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { useBusiness } from "../lib/businessContext";
 import { syncNow } from "../lib/sync";
 import { useTheme, type Theme } from "../lib/theme";
+import InstallButton from "../components/InstallButton";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -83,6 +84,8 @@ export default function SettingsPage() {
         <Item icon={RefreshCw} label="Sinkronkan sekarang" onClick={manualSync} />
       </div>
       {syncMsg && <p className="px-1 text-sm muted">{syncMsg}</p>}
+
+      <InstallButton />
 
       {isOwner && (
         <button className="btn-ghost w-full justify-start text-red-600" onClick={deleteBusiness}>
