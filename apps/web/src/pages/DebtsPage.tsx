@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { formatMoney } from "@catat/shared";
 import { db, type LDebt } from "../lib/db";
@@ -11,7 +12,13 @@ export default function DebtsPage() {
   const businessId = current?.id ?? "";
   const currency = current?.currency ?? "IDR";
   const canRecord = current?.role !== "viewer";
-  const [tab, setTab] = useState<"receivable" | "payable">("receivable");
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<"receivable" | "payable">(searchParams.get("dir") === "payable" ? "payable" : "receivable");
+
+  useEffect(() => {
+    const d = searchParams.get("dir");
+    if (d === "payable" || d === "receivable") setTab(d);
+  }, [searchParams]);
   const [addOpen, setAddOpen] = useState(false);
   const [editFor, setEditFor] = useState<LDebt | null>(null);
   const [payFor, setPayFor] = useState<LDebt | null>(null);

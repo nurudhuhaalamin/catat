@@ -1,4 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
+import { useNavigate } from "react-router-dom";
 import { formatMoney } from "@catat/shared";
 import { db } from "../lib/db";
 import { accountBalances } from "../lib/finance";
@@ -11,6 +12,7 @@ function startOfMonth(): number {
 
 export default function DashboardPage() {
   const { current } = useBusiness();
+  const navigate = useNavigate();
   const businessId = current?.id ?? "";
   const currency = current?.currency ?? "IDR";
 
@@ -46,7 +48,7 @@ export default function DashboardPage() {
     }
     return {
       cashTotal,
-      accounts: liveAccounts.map((a) => ({ name: a.name, balance: bal.get(a.id) ?? 0 })),
+      accounts: liveAccounts.map((a) => ({ id: a.id, name: a.name, balance: bal.get(a.id) ?? 0 })),
       monthIncome,
       monthExpense,
       receivable,
@@ -56,6 +58,9 @@ export default function DashboardPage() {
 
   if (!stats) return <p className="text-slate-400">Memuat…</p>;
 
+  const monthStart = startOfMonth();
+  const now = Date.now();
+
   return (
     <div className="space-y-4">
       <div className="card bg-brand text-white">
@@ -64,32 +69,34 @@ export default function DashboardPage() {
         {stats.accounts.length > 0 && (
           <div className="mt-3 space-y-1 border-t border-white/20 pt-2 text-sm">
             {stats.accounts.map((a) => (
-              <div key={a.name} className="flex justify-between text-white/90">
+              <button
+                key={a.id}
+                className="flex w-full justify-between text-white/90 active:opacity-70"
+                onClick={() => navigate(`/transactions?account=${a.id}`)}
+              >
                 <span>{a.name}</span>
-                <span>{formatMoney(a.balance, currency)}</span>
-              </div>
+                <span>{formatMoney(a.balance, currency)} ›</span>
+              </button>
             ))}
           </div>
         )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Stat label="Masuk bulan ini" value={formatMoney(stats.monthIncome, currency)} tone="text-emerald-600" />
-        <Stat label="Keluar bulan ini" value={formatMoney(stats.monthExpense, currency)} tone="text-red-600" />
-        <Stat label="Piutang" value={formatMoney(stats.receivable, currency)} tone="text-amber-600" />
-        <Stat label="Hutang" value={formatMoney(stats.payable, currency)} tone="text-purple-600" />
+        <Stat label="Masuk bulan ini" value={formatMoney(stats.monthIncome, currency)} tone="text-emerald-600" onClick={() => navigate(`/transactions?type=income&from=${monthStart}&to=${now}`)} />
+        <Stat label="Keluar bulan ini" value={formatMoney(stats.monthExpense, currency)} tone="text-red-600" onClick={() => navigate(`/transactions?type=expense&from=${monthStart}&to=${now}`)} />
+        <Stat label="Piutang" value={formatMoney(stats.receivable, currency)} tone="text-amber-600" onClick={() => navigate(`/debts?dir=receivable`)} />
+        <Stat label="Hutang" value={formatMoney(stats.payable, currency)} tone="text-purple-600" onClick={() => navigate(`/debts?dir=payable`)} />
       </div>
-
-      <p className="pt-2 text-center text-xs text-slate-400">Data tersimpan di perangkat & tersinkron otomatis saat online.</p>
     </div>
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone: string }) {
+function Stat({ label, value, tone, onClick }: { label: string; value: string; tone: string; onClick?: () => void }) {
   return (
-    <div className="card">
-      <p className="text-xs text-slate-500">{label}</p>
+    <button className="card text-left active:bg-slate-50" onClick={onClick}>
+      <p className="text-xs text-slate-500">{label} ›</p>
       <p className={`mt-1 text-lg font-bold ${tone}`}>{value}</p>
-    </div>
+    </button>
   );
 }
