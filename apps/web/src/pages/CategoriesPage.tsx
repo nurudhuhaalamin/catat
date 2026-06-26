@@ -52,7 +52,7 @@ function Group({ title, rows, onEdit }: { title: string; rows: LCategory[]; onEd
     <section className="card">
       <h3 className="mb-2 font-semibold text-slate-600">{title}</h3>
       {rows.length === 0 ? (
-        <p className="text-sm text-slate-300">Belum ada.</p>
+        <p className="text-sm muted">Belum ada.</p>
       ) : (
         <ul className="space-y-1.5">
           {rows.map((c) => (
@@ -61,7 +61,7 @@ function Group({ title, rows, onEdit }: { title: string; rows: LCategory[]; onEd
                 {c.name} <span className="text-xs text-slate-400">· {NATURE_LABEL[c.nature]}</span>
               </span>
               {onEdit && (
-                <button className="text-slate-300 hover:text-brand" onClick={() => onEdit(c)}>
+                <button className="text-slate-300 hover:text-brand dark:text-slate-600" onClick={() => onEdit(c)}>
                   ✎
                 </button>
               )}
@@ -136,5 +136,5 @@ function EditCategory({ businessId, category, onClose }: { businessId: string; c
 }
 
 function tab(active: boolean) {
-  return `rounded-xl py-2.5 font-medium ${active ? "bg-brand text-white" : "bg-slate-100 text-slate-500"}`;
+  return `rounded-xl py-2.5 font-medium ${active ? "bg-brand text-white" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"}`;
 }

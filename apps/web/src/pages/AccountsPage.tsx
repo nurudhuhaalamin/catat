@@ -60,7 +60,7 @@ export default function AccountsPage() {
             <div className="flex items-center gap-3">
               <span className="font-semibold">{formatMoney(data?.bal.get(a.id) ?? 0, currency)}</span>
               {canManage && (
-                <button className="text-slate-300 hover:text-brand" onClick={() => setEdit(a)} title="Ubah">
+                <button className="text-slate-300 hover:text-brand dark:text-slate-600" onClick={() => setEdit(a)} title="Ubah">
                   ✎
                 </button>
               )}

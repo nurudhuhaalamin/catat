@@ -263,5 +263,5 @@ function PaySheet({ businessId, debt, onClose }: { businessId: string; debt: LDe
 }
 
 function pill(active: boolean) {
-  return `rounded-xl px-2 py-2 text-xs font-medium ${active ? "bg-brand text-white" : "bg-slate-100 text-slate-500"}`;
+  return `rounded-xl px-2 py-2 text-xs font-medium ${active ? "bg-brand text-white" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"}`;
 }

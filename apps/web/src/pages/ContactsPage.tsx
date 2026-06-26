@@ -33,7 +33,7 @@ export default function ContactsPage() {
         {(contacts ?? []).map((c) => (
           <li
             key={c.id}
-            className={`card flex items-center justify-between ${canRecord ? "cursor-pointer active:bg-slate-50" : ""}`}
+            className={`card flex items-center justify-between ${canRecord ? "cursor-pointer active:bg-slate-50 dark:active:bg-slate-800" : ""}`}
             onClick={canRecord ? () => setSheet(c) : undefined}
           >
             <div>
@@ -45,7 +45,7 @@ export default function ContactsPage() {
             </div>
             {canRecord && (
               <button
-                className="text-slate-300 hover:text-red-500"
+                className="text-slate-300 hover:text-red-500 dark:text-slate-600"
                 onClick={(e) => {
                   e.stopPropagation();
                   deleteLocal("contacts", businessId, c.id);
